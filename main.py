@@ -2,6 +2,7 @@ import os
 import uuid
 import numpy as np
 import librosa
+import pyrubberband as pyrb
 import soundfile as sf
 import scipy.signal
 
@@ -9,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 
-app = FastAPI(title="MixingBear Headless Audio Engine")
+app = FastAPI(title="Headless Audio Engine")
 
 
 class TransitionRequest(BaseModel):
@@ -42,11 +43,6 @@ def safe_bpm(y, sr):
 
 
 def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, mix_samples, offset_samples=1200):
-    """
-    Finds the best point in Track B to align with Track A during the transition window.
-    This borrows the useful idea from the second code: try multiple beat alignments and score them.
-    """
-
     track_a_beats = np.asarray(track_a_beats)
     track_b_beats = np.asarray(track_b_beats)
 
@@ -165,7 +161,9 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
     stretch_ratio = bpm_b / bpm_a
 
     if abs(stretch_ratio - 1.0) > 0.003:
-        y_b = librosa.effects.time_stretch(y_b, rate=stretch_ratio)
+        y_b = pyrb.time_stretch(y_b, TARGET_SR, stretch_ratio)
+    else:
+        print("BPMs are close enough. No stretching required.")
 
     print("Re-analyzing Track B after stretching...")
     bpm_b_after, beats_b = safe_bpm(y_b, TARGET_SR)
@@ -182,11 +180,11 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
     print(f"Requested start: {transition_start_time:.3f}s")
     print(f"Snapped start: {snapped_start_time:.3f}s")
 
-    if start_sample_a + mix_samples > len(y_a):
-        raise HTTPException(
-            status_code=400,
-            detail="Track A does not have enough audio after transition_start_time for this mix_duration."
-        )
+    remaining_a = len(y_a) - start_sample_a
+
+    if remaining_a < mix_samples:
+        print("Track A is short near the end. Padding remaining part with silence.")
+        y_a = np.pad(y_a, (0, mix_samples - remaining_a))
 
     print("Finding best Track B sync point using beat-overlap scoring...")
     start_sample_b, sync_accuracy = find_best_sync_point(
@@ -200,11 +198,15 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
     print(f"Best Track B start sample: {start_sample_b}")
     print(f"Beat sync accuracy: {sync_accuracy:.2f}")
 
-    segment_a = y_a[start_sample_a:start_sample_a + mix_samples]
-    segment_b = y_b[start_sample_b:start_sample_b + mix_samples]
+    segment_a = pad_or_trim(
+        y_a[start_sample_a:start_sample_a + mix_samples],
+        mix_samples
+    )
 
-    segment_a = pad_or_trim(segment_a, mix_samples)
-    segment_b = pad_or_trim(segment_b, mix_samples)
+    segment_b = pad_or_trim(
+        y_b[start_sample_b:start_sample_b + mix_samples],
+        mix_samples
+    )
 
     print("Performing micro phase alignment...")
     shift, polarity_flip = phase_align(segment_a, segment_b, TARGET_SR)
@@ -266,8 +268,8 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     mixed_segment = pad_or_trim(mixed_segment, mix_samples)
 
-    output_filename = f"transition_test.wav"
-    output_path = os.path.join(output_dir, output_filename)
+    output_filename = f"transition_{uuid.uuid4().hex[:8]}.wav"
+    output_path = os.path.normpath(os.path.join(output_dir, output_filename))
 
     sf.write(output_path, mixed_segment, TARGET_SR)
 
