@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Mixing Engine</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #111;
+            color: white;
+        }
+
+        textarea {
+            width: 100%;
+            height: 220px;
+            background: #1e1e1e;
+            color: #00ff99;
+            border: 1px solid #444;
+            padding: 15px;
+            font-size: 14px;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #00cc88;
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+
+        button:hover {
+            background: #00aa70;
+        }
+
+        pre {
+            background: #1e1e1e;
+            padding: 15px;
+            border: 1px solid #444;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+
+        audio {
+            margin-top: 20px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<h1>MixingBear Audio Engine</h1>
+
+<p>Paste your JSON payload below and render a transition clip.</p>
+
+<textarea id="jsonInput">
+{
+  "track_a_url": "track_a",
+  "track_b_url": "track_b",
+  "transition_start_time": 90,
+  "mix_duration": 30
+}
+</textarea>
+
+<br>
+
+<button onclick="renderTransition()">Render Transition</button>
+
+<pre id="responseBox">Response will appear here...</pre>
+
+<audio id="audioPlayer" controls style="display:none;"></audio>
+
+<script>
+async function renderTransition() {
+    const responseBox = document.getElementById("responseBox");
+    const audioPlayer = document.getElementById("audioPlayer");
+
+    responseBox.textContent = "Rendering transition...";
+    audioPlayer.style.display = "none";
+
+    try {
+        const payload = JSON.parse(document.getElementById("jsonInput").value);
+
+        const response = await fetch("/v1/engine/render-transition", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            responseBox.textContent = JSON.stringify(data, null, 2);
+            return;
+        }
+
+        responseBox.textContent = JSON.stringify(data, null, 2);
+
+        const audioUrl = data.audio_clip_url;
+        audioPlayer.src = audioUrl;
+        audioPlayer.style.display = "block";
+        audioPlayer.load();
+
+    } catch (error) {
+        responseBox.textContent = "Error: " + error.message;
+    }
+}
+</script>
+
+</body>
+</html>
