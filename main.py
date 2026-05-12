@@ -61,7 +61,8 @@ class TransitionRequest(BaseModel):
         "reverb_wash",
         "drop_mix",
         "harmonic_mix",
-        "phrase_mix"
+        "phrase_mix",
+        "lpf_sweep"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -510,6 +511,58 @@ def phrase_mix_transition(segment_a, segment_b, sr):
 
     return mixed_bass * 0.85 + mixed_high * 0.9
 
+def dynamic_lpf_sweep(y, sr, start_freq=18000, end_freq=300, steps=64):
+    n = len(y)
+    output = np.zeros_like(y)
+
+    step_size = max(1, n // steps)
+    freqs = np.linspace(start_freq, end_freq, steps)
+
+    for i in range(steps):
+        start = i * step_size
+        end = n if i == steps - 1 else min(n, (i + 1) * step_size)
+
+        if start >= n:
+            break
+
+        chunk = y[start:end]
+
+        if len(chunk) < 32:
+            output[start:end] = chunk
+            continue
+
+        try:
+            output[start:end] = apply_filter(
+                chunk,
+                sr,
+                cutoff=freqs[i],
+                btype="low",
+                order=2
+            )
+        except Exception:
+            output[start:end] = chunk
+
+    return output
+
+def lpf_sweep_transition(segment_a, segment_b, sr, end_freq=300):
+    mix_samples = len(segment_a)
+
+    print("Applying LPF sweep transition...")
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    swept_a = dynamic_lpf_sweep(
+        y=segment_a,
+        sr=sr,
+        start_freq=18000,
+        end_freq=end_freq,
+        steps=64
+    )
+
+    mixed = (swept_a * fade_out) + (segment_b * fade_in)
+
+    return mixed
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -531,6 +584,13 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
             segment_b=segment_b,
             sr=sr,
             end_freq=end_freq
+        )
+    if transition_strategy == "lpf_sweep":
+        return lpf_sweep_transition(
+            segment_a=segment_a,
+            segment_b=segment_b,
+            sr=sr,
+            end_freq=300
         )
 
     if transition_strategy == "auto_loop":
