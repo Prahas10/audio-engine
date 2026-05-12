@@ -60,7 +60,8 @@ class TransitionRequest(BaseModel):
         "auto_loop",
         "reverb_wash",
         "drop_mix",
-        "harmonic_mix"
+        "harmonic_mix",
+        "phrase_mix"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -432,9 +433,92 @@ def camelot_compatible(camelot_a, camelot_b):
 
     return (num_b, mode_b) in compatible
 
+def harmonic_mix_transition(segment_a, segment_b, sr):
+    """
+    Smooth harmonic blend:
+    - Keeps both tracks musical
+    - Avoids aggressive bass swap
+    - Uses gentler EQ and equal-power fade
+    """
+    mix_samples = len(segment_a)
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    a_bass = apply_filter(segment_a, sr, 180, "low")
+    a_high = apply_filter(segment_a, sr, 180, "high")
+
+    b_bass = apply_filter(segment_b, sr, 180, "low")
+    b_high = apply_filter(segment_b, sr, 180, "high")
+
+    # Bass is blended more gently than bass_swap
+    bass_fade_out = np.linspace(1.0, 0.35, mix_samples)
+    bass_fade_in = np.linspace(0.15, 1.0, mix_samples)
+
+    mixed_bass = (a_bass * bass_fade_out) + (b_bass * bass_fade_in)
+    mixed_high = (a_high * fade_out) + (b_high * fade_in)
+
+    return mixed_bass * 0.75 + mixed_high * 0.95
+
+def snap_to_phrase_boundary(beats, requested_time, sr, phrase_beats=32):
+    """
+    Snaps transition start to a musical phrase boundary.
+    Default phrase_beats=32 = 8 bars in 4/4.
+    """
+    beat_times = librosa.samples_to_time(beats, sr=sr)
+
+    if len(beat_times) == 0:
+        return requested_time, 0
+
+    closest_beat_idx = np.argmin(np.abs(beat_times - requested_time))
+
+    phrase_idx = closest_beat_idx - (closest_beat_idx % phrase_beats)
+
+    phrase_idx = max(0, min(phrase_idx, len(beat_times) - 1))
+
+    snapped_phrase_time = float(beat_times[phrase_idx])
+    snapped_phrase_sample = int(snapped_phrase_time * sr)
+
+    return snapped_phrase_time, snapped_phrase_sample
+
+def phrase_mix_transition(segment_a, segment_b, sr):
+    """
+    Phrase-aware blend:
+    - Introduces Track B slowly
+    - Keeps Track A dominant in first half
+    - Swaps energy more clearly in second half
+    """
+    mix_samples = len(segment_a)
+
+    t = np.linspace(0, 1, mix_samples)
+
+    # S-curve fades for more musical phrase movement
+    fade_in = 1 / (1 + np.exp(-10 * (t - 0.55)))
+    fade_out = 1 - (1 / (1 + np.exp(-10 * (t - 0.45))))
+
+    a_bass = apply_filter(segment_a, sr, 220, "low")
+    a_high = apply_filter(segment_a, sr, 220, "high")
+
+    b_bass = apply_filter(segment_b, sr, 220, "low")
+    b_high = apply_filter(segment_b, sr, 220, "high")
+
+    # Track A bass stays longer, Track B bass enters later
+    b_bass_gate = 1 / (1 + np.exp(-18 * (t - 0.70)))
+    a_bass_gate = 1 - (1 / (1 + np.exp(-18 * (t - 0.65))))
+
+    mixed_bass = (a_bass * a_bass_gate) + (b_bass * b_bass_gate)
+    mixed_high = (a_high * fade_out) + (b_high * fade_in)
+
+    return mixed_bass * 0.85 + mixed_high * 0.9
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
+
+    if transition_strategy == "harmonic_mix":
+        return harmonic_mix_transition(segment_a, segment_b, sr)
+
+    if transition_strategy == "phrase_mix":
+        return phrase_mix_transition(segment_a, segment_b, sr)
 
     if transition_strategy == "hpf_sweep":
         end_freq = 5000
@@ -513,12 +597,20 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     print(f"Track B BPM after stretch: {bpm_b_after:.2f}")
 
-    print("Snapping requested transition start to nearest beat in Track A...")
-    beat_times_a = librosa.samples_to_time(beats_a, sr=TARGET_SR)
+    if transition_strategy == "phrase_mix":
+        print("Snapping to phrase boundary...")
+        snapped_start_time, start_sample_a = snap_to_phrase_boundary(
+            beats=beats_a,
+            requested_time=transition_start_time,
+            sr=TARGET_SR,
+            phrase_beats=32
+        )
+    else:
+        beat_times_a = librosa.samples_to_time(beats_a, sr=TARGET_SR)
+        closest_beat_idx = np.argmin(np.abs(beat_times_a - transition_start_time))
 
-    closest_beat_idx = np.argmin(np.abs(beat_times_a - transition_start_time))
-    snapped_start_time = float(beat_times_a[closest_beat_idx])
-    start_sample_a = int(snapped_start_time * TARGET_SR)
+        snapped_start_time = float(beat_times_a[closest_beat_idx])
+        start_sample_a = int(snapped_start_time * TARGET_SR)
 
     print(f"Requested start: {transition_start_time:.3f}s")
     print(f"Snapped start: {snapped_start_time:.3f}s")
@@ -543,7 +635,6 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
                 detail=f"Tracks are not harmonically compatible. Track A={camelot_a}, Track B={camelot_b}"
             )
 
-        transition_strategy = "bass_swap"
     remaining_a = len(y_a) - start_sample_a
     track_a_needs_loop = remaining_a < mix_samples
 
