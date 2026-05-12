@@ -62,7 +62,8 @@ class TransitionRequest(BaseModel):
         "drop_mix",
         "harmonic_mix",
         "phrase_mix",
-        "lpf_sweep"
+        "lpf_sweep",
+        "echo_out"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -73,18 +74,15 @@ def ensure_mono(y):
         return np.mean(y, axis=0)
     return y
 
-
 def pad_or_trim(y, target_len):
     if len(y) < target_len:
         return np.pad(y, (0, target_len - len(y)))
     return y[:target_len]
 
-
 def safe_bpm(y, sr):
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="samples")
     tempo = float(np.asarray(tempo).squeeze())
     return tempo, beats.astype(int)
-
 
 def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, mix_samples, offset_samples=1200):
     track_a_beats = np.asarray(track_a_beats)
@@ -127,7 +125,6 @@ def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, 
 
     return int(best_b_start), float(best_score)
 
-
 def apply_filter(y, sr, cutoff, btype, order=4):
     nyquist = 0.5 * sr
     cutoff = min(cutoff, nyquist - 100)
@@ -135,7 +132,6 @@ def apply_filter(y, sr, cutoff, btype, order=4):
 
     b, a = scipy.signal.butter(order, normal_cutoff, btype=btype)
     return scipy.signal.filtfilt(b, a, y)
-
 
 def phase_align(track_a_slice, track_b_slice, sr):
     slice_len = int(0.05 * sr)
@@ -159,7 +155,6 @@ def phase_align(track_a_slice, track_b_slice, sr):
     except Exception:
         return 0, False
 
-
 def equal_power_fades(n):
     t = np.linspace(0, 1, n)
     fade_out = np.cos(t * np.pi / 2)
@@ -168,7 +163,6 @@ def equal_power_fades(n):
 
 def rms_level(y):
     return np.sqrt(np.mean(y ** 2) + 1e-9)
-
 
 def match_rms_to_reference(y, reference_y, max_gain_db=6.0):
     """
@@ -268,7 +262,6 @@ def dynamic_hpf_sweep(y, sr, start_freq=20, end_freq=5000, steps=64):
 
     return output
 
-
 def hpf_sweep_transition(segment_a, segment_b, sr, end_freq=5000):
     mix_samples = len(segment_a)
 
@@ -321,7 +314,6 @@ def simple_reverb_tail(y, sr, decay_seconds=4.0, wet=0.45):
     reverb = reverb[:len(y)]
 
     return (y * (1.0 - wet)) + (reverb * wet)
-
 
 def reverb_wash_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
@@ -563,6 +555,53 @@ def lpf_sweep_transition(segment_a, segment_b, sr, end_freq=300):
 
     return mixed
 
+def simple_echo(y, sr, delay_seconds=0.375, feedback=0.45, wet=0.5):
+    delay_samples = int(delay_seconds * sr)
+
+    output = y.copy()
+    echo_buffer = np.zeros(len(y) + delay_samples * 4)
+    echo_buffer[:len(y)] = y
+
+    current_gain = feedback
+
+    for i in range(1, 5):
+        start = delay_samples * i
+        end = start + len(y)
+
+        echo_buffer[start:end] += y * current_gain
+        current_gain *= feedback
+
+    echo = echo_buffer[:len(y)]
+
+    return (y * (1.0 - wet)) + (echo * wet)
+
+def echo_out_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Echo Out transition...")
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    echo_region_samples = min(int(8 * sr), mix_samples)
+
+    dry_a = segment_a.copy()
+    echo_region = dry_a[-echo_region_samples:]
+
+    echoed_tail = simple_echo(
+        y=echo_region,
+        sr=sr,
+        delay_seconds=0.375,
+        feedback=0.5,
+        wet=0.65
+    )
+
+    processed_a = dry_a.copy()
+    processed_a[-echo_region_samples:] = echoed_tail
+
+    mixed = (processed_a * fade_out) + (segment_b * fade_in)
+
+    return mixed
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -601,7 +640,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
 
     if transition_strategy == "drop_mix":
         return drop_mix_transition(segment_a, segment_b, sr)
-
+    if transition_strategy == "echo_out":
+        return echo_out_transition(segment_a, segment_b, sr)
+    
     raise HTTPException(
         status_code=400,
         detail=f"Unsupported transition_strategy: {transition_strategy}"
