@@ -14,6 +14,34 @@ app = FastAPI(title="Headless Audio Engine")
 
 TARGET_SR = 44100
 
+CAMELOT_MAP = {
+    ("A", "minor"): "8A",
+    ("E", "minor"): "9A",
+    ("B", "minor"): "10A",
+    ("F#", "minor"): "11A",
+    ("C#", "minor"): "12A",
+    ("G#", "minor"): "1A",
+    ("D#", "minor"): "2A",
+    ("A#", "minor"): "3A",
+    ("F", "minor"): "4A",
+    ("C", "minor"): "5A",
+    ("G", "minor"): "6A",
+    ("D", "minor"): "7A",
+
+    ("C", "major"): "8B",
+    ("G", "major"): "9B",
+    ("D", "major"): "10B",
+    ("A", "major"): "11B",
+    ("E", "major"): "12B",
+    ("B", "major"): "1B",
+    ("F#", "major"): "2B",
+    ("C#", "major"): "3B",
+    ("G#", "major"): "4B",
+    ("D#", "major"): "5B",
+    ("A#", "major"): "6B",
+    ("F", "major"): "7B",
+}
+
 class FXParameters(BaseModel):
     apply_reverb_tail: bool = False
     loop_track_a: bool = False
@@ -31,7 +59,8 @@ class TransitionRequest(BaseModel):
         "hpf_sweep",
         "auto_loop",
         "reverb_wash",
-        "drop_mix"
+        "drop_mix",
+        "harmonic_mix"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -349,6 +378,60 @@ def drop_mix_transition(segment_a, segment_b, sr):
 
     return mixed
 
+def estimate_key(y, sr):
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    chroma_mean = np.mean(chroma, axis=1)
+
+    major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
+                              2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+
+    minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
+                              2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+
+    key_names = ["C", "C#", "D", "D#", "E", "F",
+                 "F#", "G", "G#", "A", "A#", "B"]
+
+    best_score = -np.inf
+    best_key = None
+    best_mode = None
+
+    for i in range(12):
+        major_score = np.corrcoef(chroma_mean, np.roll(major_profile, i))[0, 1]
+        minor_score = np.corrcoef(chroma_mean, np.roll(minor_profile, i))[0, 1]
+
+        if major_score > best_score:
+            best_score = major_score
+            best_key = key_names[i]
+            best_mode = "major"
+
+        if minor_score > best_score:
+            best_score = minor_score
+            best_key = key_names[i]
+            best_mode = "minor"
+
+    return best_key, best_mode, float(best_score)
+
+def camelot_compatible(camelot_a, camelot_b):
+    if camelot_a is None or camelot_b is None:
+        return False
+
+    num_a = int(camelot_a[:-1])
+    mode_a = camelot_a[-1]
+
+    num_b = int(camelot_b[:-1])
+    mode_b = camelot_b[-1]
+
+    compatible = set()
+
+    compatible.add((num_a, mode_a))
+
+    compatible.add(((num_a - 2) % 12 + 1, mode_a))
+    compatible.add((num_a % 12 + 1, mode_a))
+
+    compatible.add((num_a, "A" if mode_a == "B" else "B"))
+
+    return (num_b, mode_b) in compatible
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -439,7 +522,28 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     print(f"Requested start: {transition_start_time:.3f}s")
     print(f"Snapped start: {snapped_start_time:.3f}s")
+    print("Estimating musical keys...")
 
+    key_a, mode_a, key_conf_a = estimate_key(y_a, TARGET_SR)
+    key_b, mode_b, key_conf_b = estimate_key(y_b, TARGET_SR)
+
+    camelot_a = CAMELOT_MAP.get((key_a, mode_a))
+    camelot_b = CAMELOT_MAP.get((key_b, mode_b))
+
+    harmonic_ok = camelot_compatible(camelot_a, camelot_b)
+
+    print(f"Track A key: {key_a} {mode_a} / Camelot {camelot_a}")
+    print(f"Track B key: {key_b} {mode_b} / Camelot {camelot_b}")
+    print(f"Harmonic compatible: {harmonic_ok}")
+    
+    if transition_strategy == "harmonic_mix":
+        if not harmonic_ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tracks are not harmonically compatible. Track A={camelot_a}, Track B={camelot_b}"
+            )
+
+        transition_strategy = "bass_swap"
     remaining_a = len(y_a) - start_sample_a
     track_a_needs_loop = remaining_a < mix_samples
 
@@ -537,7 +641,12 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
         "track_b_stretched_bpm": round(bpm_b_after, 2),
         "track_b_rms_gain": round(float(rms_gain), 3),
         "sync_accuracy": round(sync_accuracy, 3),
-        "phase_shift_samples": int(shift)
+        "phase_shift_samples": int(shift),
+        "track_a_key": f"{key_a} {mode_a}",
+        "track_b_key": f"{key_b} {mode_b}",
+        "track_a_camelot": camelot_a,
+        "track_b_camelot": camelot_b,
+        "harmonic_compatible": harmonic_ok
     }
 
 
