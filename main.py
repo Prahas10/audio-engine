@@ -63,7 +63,8 @@ class TransitionRequest(BaseModel):
         "harmonic_mix",
         "phrase_mix",
         "lpf_sweep",
-        "echo_out"
+        "echo_out",
+        "loop_roll"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -602,6 +603,40 @@ def echo_out_transition(segment_a, segment_b, sr):
 
     return mixed
 
+def loop_roll_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Loop Roll transition...")
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    # Last 25% of the transition becomes a rhythmic roll
+    roll_start = int(mix_samples * 0.75)
+
+    processed_a = segment_a.copy()
+
+    roll_source_len = int(0.5 * sr)  # 0.5 second loop
+    roll_source_start = max(0, roll_start - roll_source_len)
+
+    roll_source = segment_a[roll_source_start:roll_start]
+
+    if len(roll_source) == 0:
+        roll_source = segment_a[max(0, roll_start - int(0.25 * sr)):roll_start]
+
+    roll_target_len = mix_samples - roll_start
+
+    if len(roll_source) > 0 and roll_target_len > 0:
+        repeats = int(np.ceil(roll_target_len / len(roll_source)))
+        rolled = np.tile(roll_source, repeats)[:roll_target_len]
+
+        # Roll fades out so it does not overpower Track B
+        roll_fade = np.linspace(1.0, 0.15, roll_target_len)
+        processed_a[roll_start:] = rolled * roll_fade
+
+    mixed = (processed_a * fade_out) + (segment_b * fade_in)
+
+    return mixed
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -640,8 +675,12 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
 
     if transition_strategy == "drop_mix":
         return drop_mix_transition(segment_a, segment_b, sr)
+    
     if transition_strategy == "echo_out":
         return echo_out_transition(segment_a, segment_b, sr)
+    
+    if transition_strategy == "loop_roll":
+        return loop_roll_transition(segment_a, segment_b, sr)
     
     raise HTTPException(
         status_code=400,
