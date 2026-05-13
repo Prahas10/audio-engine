@@ -911,6 +911,42 @@ def loop_roll_transition(segment_a, segment_b, sr):
 
     return mixed
 
+def long_eq_blend_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Long EQ Blend transition...")
+
+    t = np.linspace(0, 1, mix_samples)
+
+    # Split into 3 broad bands
+    a_low = apply_filter(segment_a, sr, 180, "low")
+    a_high = apply_filter(segment_a, sr, 2500, "high")
+    a_mid = segment_a - a_low - a_high
+
+    b_low = apply_filter(segment_b, sr, 180, "low")
+    b_high = apply_filter(segment_b, sr, 2500, "high")
+    b_mid = segment_b - b_low - b_high
+
+    # Long DJ-style EQ movement
+    a_low_gain = np.linspace(1.0, 0.0, mix_samples)
+    b_low_gain = np.linspace(0.0, 1.0, mix_samples)
+
+    a_mid_gain = 1.0 - (1 / (1 + np.exp(-8 * (t - 0.45))))
+    b_mid_gain = 1 / (1 + np.exp(-8 * (t - 0.55)))
+
+    a_high_gain = np.linspace(1.0, 0.2, mix_samples)
+    b_high_gain = np.linspace(0.2, 1.0, mix_samples)
+
+    mixed = (
+        a_low * a_low_gain +
+        b_low * b_low_gain +
+        a_mid * a_mid_gain +
+        b_mid * b_mid_gain +
+        a_high * a_high_gain +
+        b_high * b_high_gain
+    )
+
+    return mixed * 0.9
 
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
@@ -956,6 +992,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     
     if transition_strategy == "loop_roll":
         return loop_roll_transition(segment_a, segment_b, sr)
+    
+    if transition_strategy == "long_eq_blend":
+        return long_eq_blend_transition(segment_a, segment_b, sr)
     
     raise HTTPException(
         status_code=400,
