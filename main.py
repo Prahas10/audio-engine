@@ -76,7 +76,8 @@ class TransitionRequest(BaseModel):
         "energy_blend",
         "percussion_blend",
         "breakdown_blend",
-        "ambient_transition"
+        "ambient_transition",
+        "techno_filter_drive"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -1079,6 +1080,48 @@ def ambient_transition(segment_a, segment_b, sr):
 
     return mixed
 
+def soft_clip_drive(y, drive=2.0):
+    """
+    Soft saturation/drive without harsh digital clipping.
+    """
+    driven = np.tanh(y * drive)
+    return driven / max(np.max(np.abs(driven)), 1e-9)
+
+def techno_filter_drive_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Techno Filter Drive transition...")
+
+    t = np.linspace(0, 1, mix_samples)
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    # Drive Track A as it exits
+    driven_a = soft_clip_drive(segment_a, drive=2.2)
+
+    # HPF sweep makes Track A thinner/aggressive over time
+    filtered_a = dynamic_hpf_sweep(
+        y=driven_a,
+        sr=sr,
+        start_freq=80,
+        end_freq=3500,
+        steps=64
+    )
+
+    # Track B enters clean, then gets full energy
+    b_low = apply_filter(segment_b, sr, 220, "low")
+    b_high = apply_filter(segment_b, sr, 220, "high")
+
+    b_low_gain = 1 / (1 + np.exp(-16 * (t - 0.68)))
+
+    mixed = (
+        filtered_a * fade_out * 0.85
+        + b_high * fade_in * 0.9
+        + b_low * b_low_gain * 0.9
+    )
+
+    return mixed
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -1138,6 +1181,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     
     if transition_strategy == "ambient_transition":
         return ambient_transition(segment_a, segment_b, sr)
+    
+    if transition_strategy == "techno_filter_drive":
+        return techno_filter_drive_transition(segment_a, segment_b, sr) 
 
     raise HTTPException(
         status_code=400,
