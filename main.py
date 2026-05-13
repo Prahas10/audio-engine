@@ -162,7 +162,7 @@ def runway_score(candidate_time, song_duration, mix_duration):
     return 0.25
 
 # Determines the most appropriate DJ transition technique based on BPM difference and harmonic compatibility.
-def choose_strategy(
+def choose_strategy_with_scores(
     harmonic_ok,
     bpm_a,
     bpm_b,
@@ -173,22 +173,92 @@ def choose_strategy(
     bpm_delta = abs(bpm_a - bpm_b)
     remaining = song_duration_a - best_time
 
-    if not harmonic_ok and bpm_delta > 8:
-        return "reverb_wash"
+    scores = {
+        "harmonic_mix": 0,
+        "phrase_mix": 0,
+        "bass_swap": 0,
+        "hpf_sweep": 0,
+        "lpf_sweep": 0,
+        "reverb_wash": 0,
+        "echo_out": 0,
+        "loop_roll": 0,
+        "long_eq_blend": 0,
+        "ambient_transition": 0,
+        "breakdown_blend": 0,
+        "energy_blend": 0,
+        "drop_mix": 0,
+        "percussion_blend": 0,
+        "techno_filter_drive": 0,
+        "auto_loop": 0,
+    }
 
     if remaining < mix_duration:
-        return "auto_loop"
+        scores["auto_loop"] += 100
 
-    if harmonic_ok and bpm_delta <= 6:
-        return "energy_blend"
+    if harmonic_ok:
+        scores["harmonic_mix"] += 35
+        scores["long_eq_blend"] += 25
+        scores["energy_blend"] += 20
+        scores["phrase_mix"] += 15
+    else:
+        scores["reverb_wash"] += 30
+        scores["echo_out"] += 25
+        scores["ambient_transition"] += 15
 
-    if bpm_delta <= 5:
-        return "phrase_mix"
+    if bpm_delta <= 3:
+        scores["long_eq_blend"] += 30
+        scores["harmonic_mix"] += 25
+        scores["phrase_mix"] += 20
+        scores["bass_swap"] += 15
+    elif bpm_delta <= 6:
+        scores["energy_blend"] += 25
+        scores["phrase_mix"] += 20
+        scores["hpf_sweep"] += 15
+        scores["lpf_sweep"] += 10
+    elif bpm_delta <= 10:
+        scores["hpf_sweep"] += 25
+        scores["echo_out"] += 20
+        scores["reverb_wash"] += 15
+    else:
+        scores["reverb_wash"] += 40
+        scores["echo_out"] += 25
+        scores["ambient_transition"] += 20
 
-    if bpm_delta <= 10:
-        return "hpf_sweep"
+    song_position = best_time / song_duration_a
 
-    return "reverb_wash"
+    if song_position < 0.65:
+        scores["long_eq_blend"] += 15
+        scores["energy_blend"] += 10
+    elif song_position < 0.85:
+        scores["phrase_mix"] += 20
+        scores["bass_swap"] += 15
+        scores["percussion_blend"] += 10
+    else:
+        scores["echo_out"] += 20
+        scores["reverb_wash"] += 15
+        scores["auto_loop"] += 10
+
+    if mix_duration >= 45:
+        scores["long_eq_blend"] += 30
+        scores["ambient_transition"] += 15
+        scores["breakdown_blend"] += 15
+    elif mix_duration >= 30:
+        scores["phrase_mix"] += 15
+        scores["energy_blend"] += 15
+        scores["bass_swap"] += 10
+    else:
+        scores["drop_mix"] += 25
+        scores["loop_roll"] += 20
+        scores["echo_out"] += 15
+
+    if harmonic_ok and bpm_delta <= 5:
+        scores["techno_filter_drive"] += 5
+        scores["loop_roll"] += 5
+        scores["drop_mix"] += 5
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+    return ranked[0][0], dict(ranked)
 
 # The 'Brain' of the engine: analyzes both tracks to find the mathematically best point and method for a transition.
 def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
@@ -291,7 +361,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
             best_score = total_score
             best_time = candidate_time
 
-    strategy = choose_strategy(
+    strategy, strategy_scores = choose_strategy_with_scores(
         harmonic_ok=harmonic_ok,
         bpm_a=bpm_a,
         bpm_b=bpm_b,
@@ -313,6 +383,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         "recommended_track_b_entry_sample": int(start_sample_b),
         "sync_accuracy": round(float(sync_accuracy), 3),
         "recommended_strategy": strategy,
+        "strategy_scores": strategy_scores,
         "mix_duration": preferred_mix_duration,
         "reason": reason,
         "track_a": {
