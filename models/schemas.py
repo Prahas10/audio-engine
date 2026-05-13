@@ -82,3 +82,9 @@ class ScanTrackRequest(BaseModel):
 class ScanFolderRequest(BaseModel):
     folder_path: str
     library_path: str = "storage/library_metadata.json"
+
+class RecommendNextRequest(BaseModel):
+    current_track_id: str
+    library_path: str = "storage/library_metadata.json"
+    preferred_mix_duration: int = 30
+    max_results: int = 5

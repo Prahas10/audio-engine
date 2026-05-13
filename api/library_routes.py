@@ -8,7 +8,7 @@ from core.library import (
 )
 
 
-router = APIRouter(prefix="/v1/library", tags=["Library"])
+router = APIRouter(prefix="/library", tags=["Library"])
 
 
 @router.post("/scan-track")

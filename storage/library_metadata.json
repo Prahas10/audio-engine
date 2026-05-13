@@ -1,0 +1,242 @@
+{
+  "568476d1-c540-525e-b2de-b24edec27daf": {
+    "track_id": "568476d1-c540-525e-b2de-b24edec27daf",
+    "path": "E:\\Project\\audio-engine\\tracks\\1525374679.mp3",
+    "filename": "1525374679.mp3",
+    "extension": ".mp3",
+    "duration": 460.8,
+    "bpm": 126.048,
+    "key": "A major",
+    "key_name": "A",
+    "mode": "major",
+    "camelot": "11B",
+    "key_confidence": 0.557,
+    "phrase_points": [
+      260.656,
+      276.016,
+      291.376,
+      306.701,
+      321.863,
+      337.223,
+      352.583,
+      367.943,
+      383.303,
+      398.663,
+      414.012
+    ],
+    "energy_summary": {
+      "avg": 0.447,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "134fc25f-0e38-59f6-94c2-5a8eb702b4db": {
+    "track_id": "134fc25f-0e38-59f6-94c2-5a8eb702b4db",
+    "path": "E:\\Project\\audio-engine\\tracks\\1996769938.mp3",
+    "filename": "1996769938.mp3",
+    "extension": ".mp3",
+    "duration": 665.003,
+    "bpm": 123.047,
+    "key": "F# minor",
+    "key_name": "F#",
+    "mode": "minor",
+    "camelot": "11A",
+    "key_confidence": 0.436,
+    "phrase_points": [
+      376.802,
+      392.51,
+      408.207,
+      423.903,
+      439.356,
+      455.065,
+      470.761,
+      486.458,
+      502.155,
+      517.851,
+      533.304,
+      549.001,
+      564.709,
+      580.406,
+      596.103
+    ],
+    "energy_summary": {
+      "avg": 0.205,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "af0ab077-054a-59ed-841b-20ed737119c6": {
+    "track_id": "af0ab077-054a-59ed-841b-20ed737119c6",
+    "path": "E:\\Project\\audio-engine\\tracks\\2992470045.mp3",
+    "filename": "2992470045.mp3",
+    "extension": ".mp3",
+    "duration": 397.821,
+    "bpm": 126.048,
+    "key": "D# major",
+    "key_name": "D#",
+    "mode": "major",
+    "camelot": "5B",
+    "key_confidence": 0.749,
+    "phrase_points": [
+      228.426,
+      243.902,
+      259.146,
+      274.379,
+      289.379,
+      304.623,
+      319.855,
+      335.099,
+      350.331,
+      365.563
+    ],
+    "energy_summary": {
+      "avg": 0.388,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "f1655474-d591-59af-97b2-5de9486aeb1c": {
+    "track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
+    "path": "E:\\Project\\audio-engine\\tracks\\Ben B\u00f6hmer - Beyond Beliefs (Original Mix).wav",
+    "filename": "Ben B\u00f6hmer - Beyond Beliefs (Original Mix).wav",
+    "extension": ".wav",
+    "duration": 437.467,
+    "bpm": 123.047,
+    "key": "C# major",
+    "key_name": "C#",
+    "mode": "major",
+    "camelot": "3B",
+    "key_confidence": 0.824,
+    "phrase_points": [
+      248.407,
+      263.906,
+      279.638,
+      295.114,
+      310.602,
+      326.089,
+      341.566,
+      357.053,
+      372.657,
+      388.249
+    ],
+    "energy_summary": {
+      "avg": 0.375,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "5ac17573-5380-5949-b888-f107808ac284": {
+    "track_id": "5ac17573-5380-5949-b888-f107808ac284",
+    "path": "E:\\Project\\audio-engine\\tracks\\Nicola Dudich & L'ginger - Surprise Me (Original Mix).mp3",
+    "filename": "Nicola Dudich & L'ginger - Surprise Me (Original Mix).mp3",
+    "extension": ".mp3",
+    "duration": 322.508,
+    "bpm": 129.199,
+    "key": "E minor",
+    "key_name": "E",
+    "mode": "minor",
+    "camelot": "9A",
+    "key_confidence": 0.322,
+    "phrase_points": [
+      180.442,
+      195.315,
+      210.326,
+      225.303,
+      240.327,
+      255.315,
+      270.303,
+      285.315
+    ],
+    "energy_summary": {
+      "avg": 0.536,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "9fa1eaa3-eec7-562b-9163-4530647d3ecb": {
+    "track_id": "9fa1eaa3-eec7-562b-9163-4530647d3ecb",
+    "path": "E:\\Project\\audio-engine\\tracks\\Nicola Dudich - I Need A Reason(Original Mix).mp3",
+    "filename": "Nicola Dudich - I Need A Reason(Original Mix).mp3",
+    "extension": ".mp3",
+    "duration": 339.696,
+    "bpm": 123.047,
+    "key": "G major",
+    "key_name": "G",
+    "mode": "major",
+    "camelot": "9B",
+    "key_confidence": 0.384,
+    "phrase_points": [
+      187.083,
+      202.559,
+      218.047,
+      233.535,
+      249.011,
+      264.499,
+      279.975,
+      295.462,
+      310.95
+    ],
+    "energy_summary": {
+      "avg": 0.486,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "da4a9b6b-43d5-595b-b6f5-2d0cf0d2b8b3": {
+    "track_id": "da4a9b6b-43d5-595b-b6f5-2d0cf0d2b8b3",
+    "path": "E:\\Project\\audio-engine\\tracks\\Nicola Dudich - Just Listen (Original Mix).mp3",
+    "filename": "Nicola Dudich - Just Listen (Original Mix).mp3",
+    "extension": ".mp3",
+    "duration": 325.721,
+    "bpm": 126.048,
+    "key": "C minor",
+    "key_name": "C",
+    "mode": "minor",
+    "camelot": "5A",
+    "key_confidence": 0.685,
+    "phrase_points": [
+      182.219,
+      197.451,
+      212.683,
+      227.927,
+      243.159,
+      258.403,
+      273.636,
+      289.112
+    ],
+    "energy_summary": {
+      "avg": 0.499,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "05864791-8802-5bc2-a3e9-f52c57fd05ee": {
+    "track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+    "path": "E:\\Project\\audio-engine\\tracks\\Tinlicker, Hero Baldwin - Rebirth feat. Hero Baldwin (Extended Mix).wav",
+    "filename": "Tinlicker, Hero Baldwin - Rebirth feat. Hero Baldwin (Extended Mix).wav",
+    "extension": ".wav",
+    "duration": 375.724,
+    "bpm": 123.047,
+    "key": "G# major",
+    "key_name": "G#",
+    "mode": "major",
+    "camelot": "4B",
+    "key_confidence": 0.785,
+    "phrase_points": [
+      217.513,
+      233.001,
+      248.488,
+      264.208,
+      279.696,
+      295.184,
+      310.671,
+      326.391,
+      341.879
+    ],
+    "energy_summary": {
+      "avg": 0.396,
+      "max": 1.0,
+      "min": 0.0
+    }
+  }
+}
