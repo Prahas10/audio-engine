@@ -47,10 +47,17 @@ class FXParameters(BaseModel):
     loop_track_a: bool = False
     hpf_sweep_end_freq: Optional[float] = None
 
+class AutoRenderRequest(BaseModel):
+    track_a_path: str
+    track_b_path: str
+    preferred_mix_duration: int = 30
+    output_dir: str = "outputs"
+    
 class TransitionRequest(BaseModel):
     track_a_path: str
     track_b_path: str
     transition_start_time: float
+    track_b_entry_time: Optional[float] = None
     mix_duration: int = 30
     output_dir: str = "outputs"
 
@@ -69,6 +76,273 @@ class TransitionRequest(BaseModel):
 
     fx_parameters: FXParameters = FXParameters()
 
+class PlanTransitionRequest(BaseModel):
+    track_a_path: str
+    track_b_path: str
+    preferred_mix_duration: int = 30
+
+def get_energy_curve(y, sr, frame_length=2048, hop_length=512):
+    rms = librosa.feature.rms(
+        y=y,
+        frame_length=frame_length,
+        hop_length=hop_length
+    )[0]
+
+    times = librosa.frames_to_time(
+        np.arange(len(rms)),
+        sr=sr,
+        hop_length=hop_length
+    )
+
+    if np.max(rms) > 0:
+        rms = rms / np.max(rms)
+
+    return times, rms
+
+
+def phrase_boundary_candidates(beats, sr, song_duration, phrase_beats=32):
+    beat_times = librosa.samples_to_time(beats, sr=sr)
+
+    if len(beat_times) == 0:
+        return []
+
+    start_search = song_duration * 0.55
+    end_search = song_duration * 0.92
+
+    candidates = []
+
+    for i in range(0, len(beat_times), phrase_beats):
+        t = float(beat_times[i])
+
+        if start_search <= t <= end_search:
+            candidates.append(t)
+
+    return candidates
+
+
+def local_energy_score(candidate_time, energy_times, energy_values, window_seconds=20):
+    before_start = candidate_time - window_seconds
+    before_end = candidate_time
+
+    after_start = candidate_time
+    after_end = candidate_time + window_seconds
+
+    before_mask = (energy_times >= before_start) & (energy_times < before_end)
+    after_mask = (energy_times >= after_start) & (energy_times < after_end)
+
+    if not np.any(before_mask) or not np.any(after_mask):
+        return 0.5
+
+    before_energy = float(np.mean(energy_values[before_mask]))
+    after_energy = float(np.mean(energy_values[after_mask]))
+
+    # Good transition areas often have stable or slightly falling energy.
+    drop = before_energy - after_energy
+
+    score = 0.5 + drop
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def runway_score(candidate_time, song_duration, mix_duration):
+    remaining = song_duration - candidate_time
+
+    if remaining >= mix_duration:
+        return 1.0
+
+    if remaining >= mix_duration * 0.5:
+        return 0.6
+
+    return 0.25
+
+
+def choose_strategy(
+    harmonic_ok,
+    bpm_a,
+    bpm_b,
+    best_time,
+    song_duration_a,
+    mix_duration
+):
+    bpm_delta = abs(bpm_a - bpm_b)
+    remaining = song_duration_a - best_time
+
+    if not harmonic_ok and bpm_delta > 8:
+        return "reverb_wash"
+
+    if remaining < mix_duration:
+        return "auto_loop"
+
+    if harmonic_ok and bpm_delta <= 6:
+        return "harmonic_mix"
+
+    if bpm_delta <= 5:
+        return "phrase_mix"
+
+    if bpm_delta <= 10:
+        return "hpf_sweep"
+
+    return "reverb_wash"
+
+
+def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
+    if not os.path.exists(track_a_path):
+        raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
+
+    if not os.path.exists(track_b_path):
+        raise HTTPException(status_code=400, detail=f"Track B not found: {track_b_path}")
+
+    print("\n--- Starting Brain V1 Transition Planner ---")
+
+    y_a, _ = librosa.load(track_a_path, sr=TARGET_SR, mono=True)
+    y_b, _ = librosa.load(track_b_path, sr=TARGET_SR, mono=True)
+
+    duration_a = librosa.get_duration(y=y_a, sr=TARGET_SR)
+    duration_b = librosa.get_duration(y=y_b, sr=TARGET_SR)
+
+    bpm_a, beats_a = safe_bpm(y_a, TARGET_SR)
+    bpm_b, beats_b = safe_bpm(y_b, TARGET_SR)
+
+    key_a, mode_a, key_conf_a = estimate_key(y_a, TARGET_SR)
+    key_b, mode_b, key_conf_b = estimate_key(y_b, TARGET_SR)
+
+    camelot_a = CAMELOT_MAP.get((key_a, mode_a))
+    camelot_b = CAMELOT_MAP.get((key_b, mode_b))
+
+    harmonic_ok = camelot_compatible(camelot_a, camelot_b)
+
+    energy_times_a, energy_values_a = get_energy_curve(y_a, TARGET_SR)
+
+    candidates = phrase_boundary_candidates(
+        beats=beats_a,
+        sr=TARGET_SR,
+        song_duration=duration_a,
+        phrase_beats=32
+    )
+
+    if not candidates:
+        beat_times = librosa.samples_to_time(beats_a, sr=TARGET_SR)
+        candidates = [
+            float(t)
+            for t in beat_times
+            if duration_a * 0.55 <= t <= duration_a * 0.92
+        ]
+
+    if not candidates:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find candidate transition points."
+        )
+
+    best_score = -1
+    best_time = candidates[0]
+
+    best_start_sample_a = int(best_time * TARGET_SR)
+    mix_samples = int(preferred_mix_duration * TARGET_SR)
+
+    start_sample_b, sync_accuracy = find_best_sync_point(
+        track_a_beats=beats_a,
+        track_b_beats=beats_b,
+        transition_start_sample=best_start_sample_a,
+        mix_samples=mix_samples,
+        offset_samples=int(0.027 * TARGET_SR)
+    )
+
+    track_b_entry_time = start_sample_b / TARGET_SR
+    scored_candidates = []
+
+    for candidate_time in candidates:
+        energy_score = local_energy_score(
+            candidate_time=candidate_time,
+            energy_times=energy_times_a,
+            energy_values=energy_values_a,
+            window_seconds=20
+        )
+
+        r_score = runway_score(
+            candidate_time=candidate_time,
+            song_duration=duration_a,
+            mix_duration=preferred_mix_duration
+        )
+
+        # Phrase candidates are already phrase-aligned, so phrase score is strong.
+        phrase_score = 1.0
+
+        total_score = (
+            phrase_score * 0.35
+            + energy_score * 0.40
+            + r_score * 0.25
+        )
+
+        scored_candidates.append({
+            "time": round(float(candidate_time), 3),
+            "score": round(float(total_score), 3),
+            "energy_score": round(float(energy_score), 3),
+            "runway_score": round(float(r_score), 3)
+        })
+
+        if total_score > best_score:
+            best_score = total_score
+            best_time = candidate_time
+
+    strategy = choose_strategy(
+        harmonic_ok=harmonic_ok,
+        bpm_a=bpm_a,
+        bpm_b=bpm_b,
+        best_time=best_time,
+        song_duration_a=duration_a,
+        mix_duration=preferred_mix_duration
+    )
+
+    reason = (
+        f"Selected {strategy} because Track A is {camelot_a}, "
+        f"Track B is {camelot_b}, harmonic compatibility is {harmonic_ok}, "
+        f"BPM delta is {abs(bpm_a - bpm_b):.2f}, and the best phrase-energy point is {best_time:.2f}s."
+    )
+
+    return {
+        "status": "success",
+        "recommended_transition_start_time": round(float(best_time), 3),
+        "recommended_track_b_entry_time": round(float(track_b_entry_time), 3),
+        "recommended_track_b_entry_sample": int(start_sample_b),
+        "sync_accuracy": round(float(sync_accuracy), 3),
+        "recommended_strategy": strategy,
+        "mix_duration": preferred_mix_duration,
+        "reason": reason,
+        "track_a": {
+            "duration": round(float(duration_a), 2),
+            "bpm": round(float(bpm_a), 2),
+            "key": f"{key_a} {mode_a}",
+            "camelot": camelot_a,
+            "key_confidence": round(float(key_conf_a), 3)
+        },
+        "track_b": {
+            "duration": round(float(duration_b), 2),
+            "bpm": round(float(bpm_b), 2),
+            "key": f"{key_b} {mode_b}",
+            "camelot": camelot_b,
+            "key_confidence": round(float(key_conf_b), 3)
+        },
+        "harmonic_compatible": harmonic_ok,
+        "top_candidate_points": sorted(
+            scored_candidates,
+            key=lambda x: x["score"],
+            reverse=True
+        )[:5],
+        "render_payload": {
+            "track_a_path": track_a_path,
+            "track_b_path": track_b_path,
+            "transition_start_time": round(float(best_time), 3),
+            "track_b_entry_time": round(float(track_b_entry_time), 3),
+            "mix_duration": preferred_mix_duration,
+            "output_dir": "outputs",
+            "transition_strategy": strategy,
+            "fx_parameters": {
+                "apply_reverb_tail": strategy == "reverb_wash",
+                "loop_track_a": strategy == "auto_loop",
+                "hpf_sweep_end_freq": 5000 if strategy == "hpf_sweep" else None
+            }
+        }
+    }
 
 def ensure_mono(y):
     if y.ndim > 1:
@@ -637,6 +911,7 @@ def loop_roll_transition(segment_a, segment_b, sr):
 
     return mixed
 
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -688,7 +963,7 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     )
     
 def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_duration, output_dir,transition_strategy="bass_swap",
-    fx_parameters=None):
+    fx_parameters=None,track_b_entry_time=None):
     if not os.path.exists(track_a_path):
         raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
 
@@ -781,17 +1056,29 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
     if track_a_needs_loop:
         print("Track A is short near the end. Auto-loop may be used.")
 
-    print("Finding best Track B sync point using beat-overlap scoring...")
-    start_sample_b, sync_accuracy = find_best_sync_point(
-        track_a_beats=beats_a,
-        track_b_beats=beats_b,
-        transition_start_sample=start_sample_a,
-        mix_samples=mix_samples,
-        offset_samples=int(0.027 * TARGET_SR)
-    )
+    if track_b_entry_time is not None:
+        print("Using Brain-provided Track B entry time...")
+        start_sample_b = int(track_b_entry_time * TARGET_SR)
+        sync_accuracy = None
+    else:
+        print("Finding best Track B sync point...")
+        start_sample_b, sync_accuracy = find_best_sync_point(
+            track_a_beats=beats_a,
+            track_b_beats=beats_b,
+            transition_start_sample=start_sample_a,
+            mix_samples=mix_samples,
+            offset_samples=int(0.027 * TARGET_SR)
+        )
+
+        track_b_entry_time = start_sample_b / TARGET_SR
+
+    print(f"Track B entry time: {track_b_entry_time:.3f}s")
 
     print(f"Best Track B start sample: {start_sample_b}")
-    print(f"Beat sync accuracy: {sync_accuracy:.2f}")
+    if sync_accuracy is None:
+        print("Beat sync accuracy: Brain-provided entry time, not recalculated.")
+    else:
+        print(f"Beat sync accuracy: {sync_accuracy:.2f}")
 
     if transition_strategy == "auto_loop" or (
         fx_parameters is not None and fx_parameters.loop_track_a
@@ -871,7 +1158,9 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
         "track_b_original_bpm": round(bpm_b, 2),
         "track_b_stretched_bpm": round(bpm_b_after, 2),
         "track_b_rms_gain": round(float(rms_gain), 3),
-        "sync_accuracy": round(sync_accuracy, 3),
+        "sync_accuracy": None if sync_accuracy is None else round(float(sync_accuracy), 3),
+        "track_b_entry_time": round(float(track_b_entry_time), 3),
+        "track_b_entry_sample": int(start_sample_b),
         "phase_shift_samples": int(shift),
         "track_a_key": f"{key_a} {mode_a}",
         "track_b_key": f"{key_b} {mode_b}",
@@ -881,14 +1170,29 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
     }
 
 
-@app.post("/v1/engine/render-transition")
-async def render_transition(req: TransitionRequest):
-    return render_dj_transition(
+@app.post("/v1/autodj/render-planned-transition")
+async def render_planned_transition(req: AutoRenderRequest):
+    plan = plan_transition_logic(
         track_a_path=req.track_a_path,
         track_b_path=req.track_b_path,
-        transition_start_time=req.transition_start_time,
-        mix_duration=req.mix_duration,
-        output_dir=req.output_dir,
-        transition_strategy=req.transition_strategy,
-        fx_parameters=req.fx_parameters
+        preferred_mix_duration=req.preferred_mix_duration
     )
+
+    payload = plan["render_payload"]
+
+    result = render_dj_transition(
+        track_a_path=payload["track_a_path"],
+        track_b_path=payload["track_b_path"],
+        transition_start_time=payload["transition_start_time"],
+        track_b_entry_time=payload.get("track_b_entry_time"),
+        mix_duration=payload["mix_duration"],
+        output_dir=req.output_dir,
+        transition_strategy=payload["transition_strategy"],
+        fx_parameters=FXParameters(**payload["fx_parameters"])
+    )
+
+    return {
+        "status": "success",
+        "plan": plan,
+        "render": result
+    }
