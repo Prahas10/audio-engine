@@ -87,6 +87,7 @@ class PlanTransitionRequest(BaseModel):
     track_b_path: str
     preferred_mix_duration: int = 30
 
+# Calculates the RMS energy over time to identify high and low intensity sections of a track.
 def get_energy_curve(y, sr, frame_length=2048, hop_length=512):
     rms = librosa.feature.rms(
         y=y,
@@ -105,7 +106,7 @@ def get_energy_curve(y, sr, frame_length=2048, hop_length=512):
 
     return times, rms
 
-
+# Identifies valid musical phrase boundaries (e.g., every 32 beats) within the typical transition window of a song.
 def phrase_boundary_candidates(beats, sr, song_duration, phrase_beats=32):
     beat_times = librosa.samples_to_time(beats, sr=sr)
 
@@ -125,7 +126,7 @@ def phrase_boundary_candidates(beats, sr, song_duration, phrase_beats=32):
 
     return candidates
 
-
+# Scores a transition candidate based on the energy change before and after the point (ideal for finding 'drops' or 'outros').
 def local_energy_score(candidate_time, energy_times, energy_values, window_seconds=20):
     before_start = candidate_time - window_seconds
     before_end = candidate_time
@@ -148,7 +149,7 @@ def local_energy_score(candidate_time, energy_times, energy_values, window_secon
     score = 0.5 + drop
     return float(np.clip(score, 0.0, 1.0))
 
-
+# Scores a candidate point based on whether there is enough remaining audio to complete the requested mix duration.
 def runway_score(candidate_time, song_duration, mix_duration):
     remaining = song_duration - candidate_time
 
@@ -160,7 +161,7 @@ def runway_score(candidate_time, song_duration, mix_duration):
 
     return 0.25
 
-
+# Determines the most appropriate DJ transition technique based on BPM difference and harmonic compatibility.
 def choose_strategy(
     harmonic_ok,
     bpm_a,
@@ -189,7 +190,7 @@ def choose_strategy(
 
     return "reverb_wash"
 
-
+# The 'Brain' of the engine: analyzes both tracks to find the mathematically best point and method for a transition.
 def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
     if not os.path.exists(track_a_path):
         raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
@@ -350,21 +351,25 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         }
     }
 
+# Utility to convert stereo audio to mono by averaging the channels.
 def ensure_mono(y):
     if y.ndim > 1:
         return np.mean(y, axis=0)
     return y
 
+# Ensures an audio array matches a specific length by either padding with silence or trimming the end.
 def pad_or_trim(y, target_len):
     if len(y) < target_len:
         return np.pad(y, (0, target_len - len(y)))
     return y[:target_len]
 
+# Wraps librosa's beat tracking to safely return the estimated tempo and beat timestamps.
 def safe_bpm(y, sr):
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="samples")
     tempo = float(np.asarray(tempo).squeeze())
     return tempo, beats.astype(int)
 
+# Aligns the beat grid of Track B with the transition point of Track A to ensure the tracks are 'in sync'.
 def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, mix_samples, offset_samples=1200):
     track_a_beats = np.asarray(track_a_beats)
     track_b_beats = np.asarray(track_b_beats)
@@ -406,6 +411,7 @@ def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, 
 
     return int(best_b_start), float(best_score)
 
+# Applies a standard Butterworth filter (Low-pass or High-pass) to a specific audio segment.
 def apply_filter(y, sr, cutoff, btype, order=4):
     nyquist = 0.5 * sr
     cutoff = min(cutoff, nyquist - 100)
@@ -414,6 +420,7 @@ def apply_filter(y, sr, cutoff, btype, order=4):
     b, a = scipy.signal.butter(order, normal_cutoff, btype=btype)
     return scipy.signal.filtfilt(b, a, y)
 
+# Performs cross-correlation on sub-bass frequencies to perfectly align the waveforms of two tracks and prevent phase cancellation.
 def phase_align(track_a_slice, track_b_slice, sr):
     slice_len = int(0.05 * sr)
 
@@ -436,15 +443,18 @@ def phase_align(track_a_slice, track_b_slice, sr):
     except Exception:
         return 0, False
 
+# Generates the mathematical curves for an equal-power crossfade to maintain consistent volume during a mix.
 def equal_power_fades(n):
     t = np.linspace(0, 1, n)
     fade_out = np.cos(t * np.pi / 2)
     fade_in = np.sin(t * np.pi / 2)
     return fade_out, fade_in
 
+# Calculates the Root Mean Square (RMS) of an audio signal to determine its average loudness.
 def rms_level(y):
     return np.sqrt(np.mean(y ** 2) + 1e-9)
 
+# Adjusts the volume of Track B to match the perceived loudness of Track A, preventing jarring volume jumps.
 def match_rms_to_reference(y, reference_y, max_gain_db=6.0):
     """
     Matches y's RMS loudness to reference_y, with gain limiting.
@@ -462,6 +472,7 @@ def match_rms_to_reference(y, reference_y, max_gain_db=6.0):
 
     return y * gain, gain
 
+# Swaps the low-end frequencies of the tracks at the midpoint while crossfading the mids and highs.
 def bass_swap_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -503,6 +514,7 @@ def bass_swap_transition(segment_a, segment_b, sr):
 
     return mixed_bass + mixed_mids_highs * 0.85
 
+# Progressively increases a high-pass filter cutoff on Track A to make it 'thin out' as Track B enters.
 def dynamic_hpf_sweep(y, sr, start_freq=20, end_freq=5000, steps=64):
     """
     Applies a stepped high-pass filter sweep across the audio.
@@ -543,6 +555,7 @@ def dynamic_hpf_sweep(y, sr, start_freq=20, end_freq=5000, steps=64):
 
     return output
 
+# A transition strategy that uses the dynamic high-pass filter sweep for a smooth blend.
 def hpf_sweep_transition(segment_a, segment_b, sr, end_freq=5000):
     mix_samples = len(segment_a)
 
@@ -562,6 +575,7 @@ def hpf_sweep_transition(segment_a, segment_b, sr, end_freq=5000):
 
     return mixed
 
+# Creates an artificial 'runway' by looping the end of Track A if it is too short for the requested transition.
 def auto_loop_track_a_segment(y_a, start_sample_a, mix_samples, sr):
     available = y_a[start_sample_a:]
 
@@ -585,6 +599,7 @@ def auto_loop_track_a_segment(y_a, start_sample_a, mix_samples, sr):
 
     return looped[:mix_samples]
 
+# Adds a basic exponential decay reverb to a signal to create a 'tail'.
 def simple_reverb_tail(y, sr, decay_seconds=4.0, wet=0.45):
     decay_samples = int(decay_seconds * sr)
 
@@ -596,6 +611,7 @@ def simple_reverb_tail(y, sr, decay_seconds=4.0, wet=0.45):
 
     return (y * (1.0 - wet)) + (reverb * wet)
 
+# Washes out Track A with heavy reverb during the crossfade, useful for non-harmonic or tempo-clashing transitions.
 def reverb_wash_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -622,6 +638,7 @@ def reverb_wash_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# An abrupt transition that cuts Track A and starts Track B at the midpoint with a very short crossfade.
 def drop_mix_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -653,6 +670,7 @@ def drop_mix_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# Estimates the musical key and mode (Major/Minor) of an audio track using chromagram analysis.
 def estimate_key(y, sr):
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_mean = np.mean(chroma, axis=1)
@@ -686,6 +704,7 @@ def estimate_key(y, sr):
 
     return best_key, best_mode, float(best_score)
 
+# Checks if two Camelot keys are compatible (adjacent on the circle of fifths or relative major/minor).
 def camelot_compatible(camelot_a, camelot_b):
     if camelot_a is None or camelot_b is None:
         return False
@@ -707,6 +726,7 @@ def camelot_compatible(camelot_a, camelot_b):
 
     return (num_b, mode_b) in compatible
 
+# A gentle blend that keeps both tracks musical, using subtle EQ adjustments instead of aggressive swapping.
 def harmonic_mix_transition(segment_a, segment_b, sr):
     """
     Smooth harmonic blend:
@@ -733,6 +753,7 @@ def harmonic_mix_transition(segment_a, segment_b, sr):
 
     return mixed_bass * 0.75 + mixed_high * 0.95
 
+# Finds the nearest musical phrase boundary (e.g., the start of a bar) to ensure the transition feels rhythmically natural.
 def snap_to_phrase_boundary(beats, requested_time, sr, phrase_beats=32):
     """
     Snaps transition start to a musical phrase boundary.
@@ -754,6 +775,7 @@ def snap_to_phrase_boundary(beats, requested_time, sr, phrase_beats=32):
 
     return snapped_phrase_time, snapped_phrase_sample
 
+# A phrase-aware transition that introduces Track B slowly and uses S-curve fades for a more 'musical' feel.
 def phrase_mix_transition(segment_a, segment_b, sr):
     """
     Phrase-aware blend:
@@ -784,6 +806,7 @@ def phrase_mix_transition(segment_a, segment_b, sr):
 
     return mixed_bass * 0.85 + mixed_high * 0.9
 
+# Progressively decreases a low-pass filter cutoff to 'muffle' the audio over time.
 def dynamic_lpf_sweep(y, sr, start_freq=18000, end_freq=300, steps=64):
     n = len(y)
     output = np.zeros_like(y)
@@ -817,6 +840,7 @@ def dynamic_lpf_sweep(y, sr, start_freq=18000, end_freq=300, steps=64):
 
     return output
 
+# Mixes tracks by sweeping a low-pass filter on Track A.
 def lpf_sweep_transition(segment_a, segment_b, sr, end_freq=300):
     mix_samples = len(segment_a)
 
@@ -836,6 +860,7 @@ def lpf_sweep_transition(segment_a, segment_b, sr, end_freq=300):
 
     return mixed
 
+# Adds a rhythmic feedback delay to a signal to create an echo effect.
 def simple_echo(y, sr, delay_seconds=0.375, feedback=0.45, wet=0.5):
     delay_samples = int(delay_seconds * sr)
 
@@ -856,6 +881,7 @@ def simple_echo(y, sr, delay_seconds=0.375, feedback=0.45, wet=0.5):
 
     return (y * (1.0 - wet)) + (echo * wet)
 
+# Applies an echo effect to Track A as it fades out to bridge the gap into Track B.
 def echo_out_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -883,6 +909,7 @@ def echo_out_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# Captures a small loop of Track A and repeats it rhythmically while fading out, mimicking a DJ 'roll' effect.
 def loop_roll_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -917,6 +944,7 @@ def loop_roll_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# Simulates a long DJ blend by gradually moving individual EQ bands (Low, Mid, High) between tracks.
 def long_eq_blend_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -954,6 +982,7 @@ def long_eq_blend_transition(segment_a, segment_b, sr):
 
     return mixed * 0.9
 
+# A transition focused on smooth energy handoff, delaying the entry of Track B's bass to avoid low-end clutter.
 def energy_blend_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -980,6 +1009,7 @@ def energy_blend_transition(segment_a, segment_b, sr):
 
     return (mixed_low * 0.85) + (mixed_high * 0.9)
 
+# Emphasizes the rhythmic elements and percussion bands during the blend for a groove-heavy transition.
 def percussion_blend_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -1019,6 +1049,7 @@ def percussion_blend_transition(segment_a, segment_b, sr):
 
     return mixed * 0.88
 
+# A softer blend designed for breakdowns, prioritizing atmospheric mids/highs over heavy bass.
 def breakdown_blend_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -1046,6 +1077,7 @@ def breakdown_blend_transition(segment_a, segment_b, sr):
 
     return mixed_low * 0.75 + mixed_high * 0.95
 
+# Removes the low-end and adds a long reverb tail to Track A, turning it into an atmospheric backdrop for Track B.
 def ambient_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -1080,6 +1112,7 @@ def ambient_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# Applies tanh-based soft saturation to a signal to add harmonic warmth or 'drive'.
 def soft_clip_drive(y, drive=2.0):
     """
     Soft saturation/drive without harsh digital clipping.
@@ -1087,6 +1120,7 @@ def soft_clip_drive(y, drive=2.0):
     driven = np.tanh(y * drive)
     return driven / max(np.max(np.abs(driven)), 1e-9)
 
+# A high-energy transition that adds saturation and an aggressive HPF sweep to Track A.
 def techno_filter_drive_transition(segment_a, segment_b, sr):
     mix_samples = len(segment_a)
 
@@ -1122,6 +1156,7 @@ def techno_filter_drive_transition(segment_a, segment_b, sr):
 
     return mixed
 
+# A router function that maps a strategy name to its corresponding transition implementation.
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -1189,7 +1224,8 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
         status_code=400,
         detail=f"Unsupported transition_strategy: {transition_strategy}"
     )
-    
+
+# The primary engine function: handles loading, stretching, syncing, and rendering the final transition audio file.    
 def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_duration, output_dir,transition_strategy="bass_swap",
     fx_parameters=None,track_b_entry_time=None):
     if not os.path.exists(track_a_path):
@@ -1397,7 +1433,7 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
         "harmonic_compatible": harmonic_ok
     }
 
-
+# FastAPI endpoint that combines 'Plan' and 'Render' into a single automated 'One-Click' transition request.
 @app.post("/v1/autodj/render-planned-transition")
 async def render_planned_transition(req: AutoRenderRequest):
     plan = plan_transition_logic(
