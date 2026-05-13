@@ -71,7 +71,9 @@ class TransitionRequest(BaseModel):
         "phrase_mix",
         "lpf_sweep",
         "echo_out",
-        "loop_roll"
+        "loop_roll",
+        "long_eq_blend",
+        "energy_blend"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -173,7 +175,7 @@ def choose_strategy(
         return "auto_loop"
 
     if harmonic_ok and bpm_delta <= 6:
-        return "harmonic_mix"
+        return "engery_blend"
 
     if bpm_delta <= 5:
         return "phrase_mix"
@@ -948,6 +950,32 @@ def long_eq_blend_transition(segment_a, segment_b, sr):
 
     return mixed * 0.9
 
+def energy_blend_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Energy Blend transition...")
+
+    t = np.linspace(0, 1, mix_samples)
+
+    # Smooth energy handoff
+    fade_out = 1 - (1 / (1 + np.exp(-9 * (t - 0.55))))
+    fade_in = 1 / (1 + np.exp(-9 * (t - 0.45)))
+
+    # Bass enters later to avoid low-end clutter
+    a_low = apply_filter(segment_a, sr, 220, "low")
+    a_high = apply_filter(segment_a, sr, 220, "high")
+
+    b_low = apply_filter(segment_b, sr, 220, "low")
+    b_high = apply_filter(segment_b, sr, 220, "high")
+
+    a_low_gain = 1 - (1 / (1 + np.exp(-14 * (t - 0.62))))
+    b_low_gain = 1 / (1 + np.exp(-14 * (t - 0.68)))
+
+    mixed_low = (a_low * a_low_gain) + (b_low * b_low_gain)
+    mixed_high = (a_high * fade_out) + (b_high * fade_in)
+
+    return (mixed_low * 0.85) + (mixed_high * 0.9)
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -996,6 +1024,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     if transition_strategy == "long_eq_blend":
         return long_eq_blend_transition(segment_a, segment_b, sr)
     
+    if transition_strategy == "energy_blend":
+        return energy_blend_transition(segment_a, segment_b, sr)
+
     raise HTTPException(
         status_code=400,
         detail=f"Unsupported transition_strategy: {transition_strategy}"
