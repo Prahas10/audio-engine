@@ -5,7 +5,7 @@ from core.queue_state import load_queue_state, advance_queue
 from core.planner import plan_transition_logic
 from core.renderer import render_dj_transition
 from models.schemas import FXParameters
-
+from core.setlist_state import add_transition_to_setlist
 
 # Plans and renders transition from current queue track to next queued track
 def queue_smart_render(
@@ -62,6 +62,15 @@ def queue_smart_render(
     if auto_advance:
         updated_queue = advance_queue(queue_path)
 
+    setlist_record = add_transition_to_setlist(
+        current_track_id=current_track_id,
+        next_track_id=next_track_id,
+        transition_file=render_result["audio_clip_url"],
+        transition_start_time=render_result["snapped_transition_start_time"],
+        track_b_entry_time=render_result["track_b_entry_time"],
+        strategy=render_result["transition_strategy"],
+        setlist_path="storage/setlist_state.json"
+    )
     return {
         "status": "success",
         "current_track": current_track,
@@ -69,5 +78,6 @@ def queue_smart_render(
         "plan": plan,
         "render": render_result,
         "auto_advanced": auto_advance,
-        "updated_queue": updated_queue
+        "updated_queue": updated_queue,
+        "setlist_record": setlist_record
     }

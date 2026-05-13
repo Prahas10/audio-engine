@@ -122,3 +122,16 @@ class QueueSmartRenderRequest(BaseModel):
     preferred_mix_duration: int = 30
     output_dir: str = "rendered_clips"
     auto_advance: bool = False
+
+class SetlistAddTransitionRequest(BaseModel):
+    current_track_id: str
+    next_track_id: str
+    transition_file: str
+    transition_start_time: float
+    track_b_entry_time: float
+    strategy: str
+    setlist_path: str = "storage/setlist_state.json"
+
+
+class SetlistStateRequest(BaseModel):
+    setlist_path: str = "storage/setlist_state.json"
