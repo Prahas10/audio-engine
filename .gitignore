@@ -90,3 +90,4 @@ htmlcov/
 *.bak
 *.tmp
 *.cache
+*.json

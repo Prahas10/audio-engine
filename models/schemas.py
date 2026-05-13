@@ -73,3 +73,12 @@ class PlanTransitionRequest(BaseModel):
     track_a_path: str
     track_b_path: str
     preferred_mix_duration: int = 30
+    
+class ScanTrackRequest(BaseModel):
+    track_path: str
+    library_path: str = "storage/library_metadata.json"
+
+
+class ScanFolderRequest(BaseModel):
+    folder_path: str
+    library_path: str = "storage/library_metadata.json"
