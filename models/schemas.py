@@ -88,3 +88,10 @@ class RecommendNextRequest(BaseModel):
     library_path: str = "storage/library_metadata.json"
     preferred_mix_duration: int = 30
     max_results: int = 5
+
+class SmartRouteRequest(BaseModel):
+    current_track_id: str
+    library_path: str = "storage/library_metadata.json"
+    preferred_mix_duration: int = 30
+    output_dir: str = "rendered_clips"
+    render: bool = False
