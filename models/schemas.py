@@ -115,3 +115,10 @@ class QueueStateResponse(BaseModel):
     queue_path: str
     current_track_id: Optional[str]
     upcoming_track_ids: List[str]
+    
+class QueueSmartRenderRequest(BaseModel):
+    queue_path: str = "storage/queue_state.json"
+    library_path: str = "storage/library_metadata.json"
+    preferred_mix_duration: int = 30
+    output_dir: str = "rendered_clips"
+    auto_advance: bool = False
