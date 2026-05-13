@@ -74,7 +74,8 @@ class TransitionRequest(BaseModel):
         "loop_roll",
         "long_eq_blend",
         "energy_blend",
-        "percussion_blend"
+        "percussion_blend",
+        "breakdown_blend"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -1016,6 +1017,33 @@ def percussion_blend_transition(segment_a, segment_b, sr):
 
     return mixed * 0.88
 
+def breakdown_blend_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Breakdown Blend transition...")
+
+    t = np.linspace(0, 1, mix_samples)
+
+    # Softer, emotional blend. Less bass dominance, more mids/high atmosphere.
+    a_low = apply_filter(segment_a, sr, 160, "low")
+    a_high = apply_filter(segment_a, sr, 160, "high")
+
+    b_low = apply_filter(segment_b, sr, 160, "low")
+    b_high = apply_filter(segment_b, sr, 160, "high")
+
+    # Track A gently dissolves
+    a_high_gain = 1 - (1 / (1 + np.exp(-7 * (t - 0.55))))
+    b_high_gain = 1 / (1 + np.exp(-7 * (t - 0.35)))
+
+    # Bass enters very late, because breakdowns usually need space
+    a_low_gain = 1 - (1 / (1 + np.exp(-14 * (t - 0.48))))
+    b_low_gain = 1 / (1 + np.exp(-14 * (t - 0.78)))
+
+    mixed_low = (a_low * a_low_gain) + (b_low * b_low_gain)
+    mixed_high = (a_high * a_high_gain) + (b_high * b_high_gain)
+
+    return mixed_low * 0.75 + mixed_high * 0.95
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -1070,6 +1098,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     if transition_strategy == "percussion_blend":
         return percussion_blend_transition(segment_a, segment_b, sr)
     
+    if transition_strategy == "breakdown_blend":
+        return breakdown_blend_transition(segment_a, segment_b, sr)
+
     raise HTTPException(
         status_code=400,
         detail=f"Unsupported transition_strategy: {transition_strategy}"
