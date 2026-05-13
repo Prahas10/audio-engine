@@ -75,7 +75,8 @@ class TransitionRequest(BaseModel):
         "long_eq_blend",
         "energy_blend",
         "percussion_blend",
-        "breakdown_blend"
+        "breakdown_blend",
+        "ambient_transition"
     ] = "bass_swap"
 
     fx_parameters: FXParameters = FXParameters()
@@ -1044,6 +1045,40 @@ def breakdown_blend_transition(segment_a, segment_b, sr):
 
     return mixed_low * 0.75 + mixed_high * 0.95
 
+def ambient_transition(segment_a, segment_b, sr):
+    mix_samples = len(segment_a)
+
+    print("Applying Ambient Transition...")
+
+    t = np.linspace(0, 1, mix_samples)
+
+    fade_out, fade_in = equal_power_fades(mix_samples)
+
+    # Remove heavy low-end from Track A so it becomes atmospheric
+    a_air = apply_filter(segment_a, sr, 350, "high", order=2)
+
+    # Let Track B enter softly, with low-end delayed
+    b_low = apply_filter(segment_b, sr, 220, "low")
+    b_air = apply_filter(segment_b, sr, 220, "high")
+
+    b_low_gain = 1 / (1 + np.exp(-14 * (t - 0.75)))
+
+    # Add reverb texture to Track A
+    washed_a = simple_reverb_tail(
+        y=a_air,
+        sr=sr,
+        decay_seconds=7.0,
+        wet=0.55
+    )
+
+    mixed = (
+        washed_a * fade_out * 0.85
+        + b_air * fade_in * 0.9
+        + b_low * b_low_gain * 0.75
+    )
+
+    return mixed
+
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     if transition_strategy == "bass_swap":
         return bass_swap_transition(segment_a, segment_b, sr)
@@ -1100,6 +1135,9 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
     
     if transition_strategy == "breakdown_blend":
         return breakdown_blend_transition(segment_a, segment_b, sr)
+    
+    if transition_strategy == "ambient_transition":
+        return ambient_transition(segment_a, segment_b, sr)
 
     raise HTTPException(
         status_code=400,
