@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 CAMELOT_MAP = {
     ("A", "minor"): "8A",
@@ -95,3 +95,23 @@ class SmartRouteRequest(BaseModel):
     preferred_mix_duration: int = 30
     output_dir: str = "rendered_clips"
     render: bool = False
+    
+class CreateQueueRequest(BaseModel):
+    queue_path: str = "storage/queue_state.json"
+
+
+class AddTrackToQueueRequest(BaseModel):
+    track_id: str
+    queue_path: str = "storage/queue_state.json"
+    library_path: str = "storage/library_metadata.json"
+
+
+class AdvanceQueueRequest(BaseModel):
+    queue_path: str = "storage/queue_state.json"
+
+
+class QueueStateResponse(BaseModel):
+    status: str
+    queue_path: str
+    current_track_id: Optional[str]
+    upcoming_track_ids: List[str]
