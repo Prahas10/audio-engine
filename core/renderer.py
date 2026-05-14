@@ -114,17 +114,31 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
         print("Track A is short near the end. Auto-loop may be used.")
 
     if track_b_entry_time is not None:
-        print("Using Brain-provided Track B entry time...")
-        start_sample_b = int(track_b_entry_time * TARGET_SR)
-        sync_accuracy = None
+        print("Using planner-provided Track B entry time...")
+        start_sample_b = int(float(track_b_entry_time) * TARGET_SR)
+
+        _, sync_accuracy = find_best_sync_point(
+            track_a_beats=beats_a,
+            track_b_beats=beats_b,
+            transition_start_sample=start_sample_a,
+            mix_samples=mix_samples,
+            offset_samples=int(0.027 * TARGET_SR),
+            track_b_total_samples=len(y_b),
+            min_b_entry_percent=0.0,
+            max_b_entry_percent=0.35
+        )
+
     else:
-        print("Finding best Track B sync point...")
+        print("Finding best Track B sync point locally...")
         start_sample_b, sync_accuracy = find_best_sync_point(
             track_a_beats=beats_a,
             track_b_beats=beats_b,
             transition_start_sample=start_sample_a,
             mix_samples=mix_samples,
-            offset_samples=int(0.027 * TARGET_SR)
+            offset_samples=int(0.027 * TARGET_SR),
+            track_b_total_samples=len(y_b),
+            min_b_entry_percent=0.0,
+            max_b_entry_percent=0.35
         )
 
         track_b_entry_time = start_sample_b / TARGET_SR

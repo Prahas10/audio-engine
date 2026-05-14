@@ -5,7 +5,7 @@ from core.analysis import camelot_compatible
 
 
 # Scores how suitable one candidate track is after the current track
-def score_next_track(current_track, candidate_track, preferred_mix_duration=30):
+def score_next_track(current_track, candidate_track, preferred_mix_duration=None):
     score = 0.0
     reasons = []
 
@@ -20,7 +20,7 @@ def score_next_track(current_track, candidate_track, preferred_mix_duration=30):
 
     harmonic_ok = camelot_compatible(camelot_a, camelot_b)
     bpm_delta = abs(bpm_a - bpm_b) if bpm_a is not None and bpm_b is not None else 999
-
+    duration_for_scoring = preferred_mix_duration or 30
     if harmonic_ok:
         score += 35
         reasons.append("Camelot-compatible key")
@@ -41,10 +41,10 @@ def score_next_track(current_track, candidate_track, preferred_mix_duration=30):
         score -= 20
         reasons.append("Large BPM difference")
 
-    if duration_b >= preferred_mix_duration + 60:
+    if duration_b >= duration_for_scoring + 60:
         score += 15
         reasons.append("Enough track length for clean entry")
-    elif duration_b >= preferred_mix_duration:
+    elif duration_b >= duration_for_scoring:
         score += 8
         reasons.append("Enough duration for transition")
     else:

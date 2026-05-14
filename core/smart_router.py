@@ -11,7 +11,7 @@ from models.schemas import FXParameters
 def smart_route_transition(
     current_track_id,
     library_path,
-    preferred_mix_duration=30,
+    preferred_mix_duration=None,
     output_dir="rendered_clips",
     render=False
 ):

@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from core.analysis import *
 from core.strategy_router import *
 from models.schemas import *
+from core.strategy_router import get_strategy_mix_duration
 
 
 # Scores a transition candidate based on the energy change before and after the point (ideal for finding 'drops' or 'outros').
@@ -41,8 +42,17 @@ def runway_score(candidate_time, song_duration, mix_duration):
 
     return 0.25
 
-# Aligns the beat grid of Track B with the transition point of Track A to ensure the tracks are 'in sync'.
-def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, mix_samples, offset_samples=1200):
+# Aligns the beat grid of Track B with the transition point of Track A to ensure the tracks are 'in sync'.# Finds the best Track B entry beat inside the allowed intro window
+def find_best_sync_point(
+    track_a_beats,
+    track_b_beats,
+    transition_start_sample,
+    mix_samples,
+    offset_samples=1200,
+    track_b_total_samples=None,
+    min_b_entry_percent=0.0,
+    max_b_entry_percent=0.35
+):
     track_a_beats = np.asarray(track_a_beats)
     track_b_beats = np.asarray(track_b_beats)
 
@@ -54,11 +64,24 @@ def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, 
     if len(a_window_beats) == 0 or len(track_b_beats) == 0:
         return 0, 0.0
 
-    best_b_start = 0
-    best_score = -1
+    if track_b_total_samples is not None:
+        min_b_sample = int(track_b_total_samples * min_b_entry_percent)
+        max_b_sample = int(track_b_total_samples * max_b_entry_percent)
 
-    for b_idx in range(len(track_b_beats)):
-        b_anchor = track_b_beats[b_idx]
+        candidate_b_beats = track_b_beats[
+            (track_b_beats >= min_b_sample)
+            & (track_b_beats <= max_b_sample)
+        ]
+    else:
+        candidate_b_beats = track_b_beats
+
+    if len(candidate_b_beats) == 0:
+        candidate_b_beats = track_b_beats
+
+    best_b_start = int(candidate_b_beats[0])
+    best_score = -1.0
+
+    for b_anchor in candidate_b_beats:
         shifted_b_beats = track_b_beats - b_anchor + transition_start_sample
 
         shifted_b_window = shifted_b_beats[
@@ -75,13 +98,13 @@ def find_best_sync_point(track_a_beats, track_b_beats, transition_start_sample, 
             if np.any(np.abs(shifted_b_window - beat_a) <= offset_samples):
                 matches += 1
 
-        score = matches / max(len(a_window_beats), 1)
+        sync_accuracy = matches / max(len(a_window_beats), 1)
 
-        if score > best_score:
-            best_score = score
-            best_b_start = b_anchor
+        if sync_accuracy > best_score:
+            best_score = sync_accuracy
+            best_b_start = int(b_anchor)
 
-    return int(best_b_start), float(best_score)
+    return best_b_start, float(best_score)
 
 
 # The 'Brain' of the engine: analyzes both tracks to find the mathematically best point and method for a transition.
@@ -91,7 +114,10 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
 
     if not os.path.exists(track_b_path):
         raise HTTPException(status_code=400, detail=f"Track B not found: {track_b_path}")
-
+    # Temporary planning duration before strategy is chosen
+    planning_mix_duration = preferred_mix_duration or 30
+    planning_mix_samples = int(planning_mix_duration * TARGET_SR)
+    
     print("\n--- Starting Brain V1 Transition Planner ---")
 
     y_a, _ = librosa.load(track_a_path, sr=TARGET_SR, mono=True)
@@ -119,7 +145,12 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         song_duration=duration_a,
         phrase_beats=32
     )
-
+# Keep phrase candidates in the DJ-friendly outro zone
+    candidates = [
+        p for p in candidates
+        if duration_a * 0.65 <= p <= duration_a * 0.92
+    ]
+    
     if not candidates:
         beat_times = librosa.samples_to_time(beats_a, sr=TARGET_SR)
         candidates = [
@@ -136,15 +167,13 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
 
     best_score = -1
     best_time = candidates[0]
-
     best_start_sample_a = int(best_time * TARGET_SR)
-    mix_samples = int(preferred_mix_duration * TARGET_SR)
 
     start_sample_b, sync_accuracy = find_best_sync_point(
         track_a_beats=beats_a,
         track_b_beats=beats_b,
         transition_start_sample=best_start_sample_a,
-        mix_samples=mix_samples,
+        mix_samples=planning_mix_samples,
         offset_samples=int(0.027 * TARGET_SR)
     )
 
@@ -162,7 +191,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         r_score = runway_score(
             candidate_time=candidate_time,
             song_duration=duration_a,
-            mix_duration=preferred_mix_duration
+            mix_duration=planning_mix_duration
         )
 
         # Phrase candidates are already phrase-aligned, so phrase score is strong.
@@ -193,13 +222,19 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         bpm_b=bpm_b,
         best_time=best_time,
         song_duration_a=duration_a,
-        mix_duration=preferred_mix_duration,
+        mix_duration=planning_mix_duration,
         energy_score=best_energy_score,
         runway_score_value=best_runway_score,
         sync_accuracy=sync_accuracy,
         key_confidence_a=key_conf_a,
         key_confidence_b=key_conf_b
     )
+    if preferred_mix_duration is None:
+        mix_duration = get_strategy_mix_duration(strategy,bpm_a)
+    else:
+        mix_duration = preferred_mix_duration
+    mix_samples = int(mix_duration * TARGET_SR)
+
 
     reason = (
         f"Selected {strategy} because Track A is {camelot_a}, "
@@ -216,7 +251,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         "sync_accuracy": round(float(sync_accuracy), 3),
         "recommended_strategy": strategy,
         "strategy_scores": strategy_scores,
-        "mix_duration": preferred_mix_duration,
+        "mix_duration": mix_duration,
         "reason": reason,
         "track_a": {
             "duration": round(float(duration_a), 2),
@@ -243,7 +278,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
             "track_b_path": track_b_path,
             "transition_start_time": round(float(best_time), 3),
             "track_b_entry_time": round(float(track_b_entry_time), 3),
-            "mix_duration": preferred_mix_duration,
+            "mix_duration": mix_duration,
             "output_dir": "outputs",
             "transition_strategy": strategy,
             "fx_parameters": {

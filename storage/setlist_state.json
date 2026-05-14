@@ -1,3 +1,52 @@
 {
-  "transitions": []
+  "transitions": [
+    {
+      "current_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
+      "next_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+      "transition_file": "outputs\\transition_d911fa62.wav",
+      "transition_start_time": 357.053,
+      "track_b_entry_time": 0.255,
+      "strategy": "phrase_mix"
+    },
+    {
+      "current_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+      "next_track_id": "3168ce32-4a67-51fd-8072-b4f6e78409b9",
+      "transition_file": "outputs\\transition_94d01ded.wav",
+      "transition_start_time": 326.391,
+      "track_b_entry_time": 162.969,
+      "strategy": "percussion_blend"
+    },
+    {
+      "current_track_id": "3168ce32-4a67-51fd-8072-b4f6e78409b9",
+      "next_track_id": "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
+      "transition_file": "outputs\\transition_f272ef31.wav",
+      "transition_start_time": 294.104,
+      "track_b_entry_time": 210.001,
+      "strategy": "hpf_sweep"
+    },
+    {
+      "current_track_id": "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
+      "next_track_id": "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
+      "transition_file": "outputs\\transition_3b457449.wav",
+      "transition_start_time": 312.216,
+      "track_b_entry_time": 213.879,
+      "strategy": "energy_blend"
+    },
+    {
+      "current_track_id": "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
+      "next_track_id": "f4054d22-2727-5ecb-8d99-1308d63f5a17",
+      "transition_file": "outputs\\transition_2023d83b.wav",
+      "transition_start_time": 271.615,
+      "track_b_entry_time": 0.186,
+      "strategy": "techno_filter_drive"
+    },
+    {
+      "current_track_id": "f4054d22-2727-5ecb-8d99-1308d63f5a17",
+      "next_track_id": "b8c7e6f6-9d9c-5cb2-9fad-08f82b44e84e",
+      "transition_file": "outputs\\transition_472f69c6.wav",
+      "transition_start_time": 336.19,
+      "track_b_entry_time": 119.838,
+      "strategy": "echo_out"
+    }
+  ]
 }

@@ -11,7 +11,7 @@ from core.setlist_state import add_transition_to_setlist
 def queue_smart_render(
     queue_path,
     library_path,
-    preferred_mix_duration=30,
+    preferred_mix_duration=None,
     output_dir="rendered_clips",
     auto_advance=False
 ):

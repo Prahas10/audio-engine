@@ -264,5 +264,284 @@
       "max": 1.0,
       "min": 0.0
     }
+  },
+  "072af911-66a9-5c33-ba97-d22c5b626ddd": {
+    "track_id": "072af911-66a9-5c33-ba97-d22c5b626ddd",
+    "path": "E:\\Project\\audio-engine\\tracks\\Ben Bohmer - Breathing (Extended Mix).mp3",
+    "filename": "Ben Bohmer - Breathing (Extended Mix).mp3",
+    "extension": ".mp3",
+    "duration": 380.905,
+    "bpm": 123.047,
+    "key": "E minor",
+    "key_name": "E",
+    "mode": "minor",
+    "camelot": "9A",
+    "key_confidence": 0.727,
+    "phrase_points": [
+      221.031,
+      236.762,
+      252.505,
+      268.237,
+      283.98,
+      299.712,
+      315.455,
+      331.186,
+      346.929
+    ],
+    "energy_summary": {
+      "avg": 0.37,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "3168ce32-4a67-51fd-8072-b4f6e78409b9": {
+    "track_id": "3168ce32-4a67-51fd-8072-b4f6e78409b9",
+    "path": "E:\\Project\\audio-engine\\tracks\\CRi - Something About 256KBPS.mp3",
+    "filename": "CRi - Something About 256KBPS.mp3",
+    "extension": ".mp3",
+    "duration": 338.496,
+    "bpm": 123.047,
+    "key": "C minor",
+    "key_name": "C",
+    "mode": "minor",
+    "camelot": "5A",
+    "key_confidence": 0.554,
+    "phrase_points": [
+      201.329,
+      216.689,
+      232.165,
+      247.652,
+      263.14,
+      278.616,
+      294.104,
+      309.58
+    ],
+    "energy_summary": {
+      "avg": 0.391,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "30e97d0d-b602-51db-916b-4260cca3c341": {
+    "track_id": "30e97d0d-b602-51db-916b-4260cca3c341",
+    "path": "E:\\Project\\audio-engine\\tracks\\Eli & Fur - Temptation (Official Visualizer) [Anjunadeep] 256KBPS.mp3",
+    "filename": "Eli & Fur - Temptation (Official Visualizer) [Anjunadeep] 256KBPS.mp3",
+    "extension": ".mp3",
+    "duration": 293.312,
+    "bpm": 120.185,
+    "key": "A minor",
+    "key_name": "A",
+    "mode": "minor",
+    "camelot": "8A",
+    "key_confidence": 0.723,
+    "phrase_points": [
+      176.228,
+      192.226,
+      207.993,
+      224.003,
+      240.234,
+      256.232
+    ],
+    "energy_summary": {
+      "avg": 0.32,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "34c2a974-b5b3-5110-8aa6-481fbbca4f37": {
+    "track_id": "34c2a974-b5b3-5110-8aa6-481fbbca4f37",
+    "path": "E:\\Project\\audio-engine\\tracks\\Jerro - Closer.mp3",
+    "filename": "Jerro - Closer.mp3",
+    "extension": ".mp3",
+    "duration": 322.633,
+    "bpm": 123.047,
+    "key": "D major",
+    "key_name": "D",
+    "mode": "major",
+    "camelot": "10B",
+    "key_confidence": 0.737,
+    "phrase_points": [
+      188.14,
+      203.883,
+      219.614,
+      235.357,
+      250.845,
+      266.577,
+      282.308
+    ],
+    "energy_summary": {
+      "avg": 0.315,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8": {
+    "track_id": "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
+    "path": "E:\\Project\\audio-engine\\tracks\\Jerro - Give It Up (Extended Mix).mp3",
+    "filename": "Jerro - Give It Up (Extended Mix).mp3",
+    "extension": ".mp3",
+    "duration": 398.303,
+    "bpm": 123.047,
+    "key": "G minor",
+    "key_name": "G",
+    "mode": "minor",
+    "camelot": "6A",
+    "key_confidence": 0.806,
+    "phrase_points": [
+      234.173,
+      250.021,
+      265.625,
+      281.24,
+      296.612,
+      312.216,
+      327.97,
+      343.667,
+      359.282
+    ],
+    "energy_summary": {
+      "avg": 0.28,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "43ff37a2-c060-5e68-8d74-ea08b3708e2c": {
+    "track_id": "43ff37a2-c060-5e68-8d74-ea08b3708e2c",
+    "path": "E:\\Project\\audio-engine\\tracks\\Jerro - Ignis.mp3",
+    "filename": "Jerro - Ignis.mp3",
+    "extension": ".mp3",
+    "duration": 335.62,
+    "bpm": 123.047,
+    "key": "D major",
+    "key_name": "D",
+    "mode": "major",
+    "camelot": "10B",
+    "key_confidence": 0.831,
+    "phrase_points": [
+      187.594,
+      203.209,
+      218.813,
+      234.429,
+      250.032,
+      265.392,
+      281.008,
+      296.612
+    ],
+    "energy_summary": {
+      "avg": 0.343,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "f4054d22-2727-5ecb-8d99-1308d63f5a17": {
+    "track_id": "f4054d22-2727-5ecb-8d99-1308d63f5a17",
+    "path": "E:\\Project\\audio-engine\\tracks\\LP Giobbi - 'All In A Dream (feat. DJ Tennis & Joseph Ashworth) [Extended Mix]' (Official Audio) 256KBPS.mp3",
+    "filename": "LP Giobbi - 'All In A Dream (feat. DJ Tennis & Joseph Ashworth) [Extended Mix]' (Official Audio) 256KBPS.mp3",
+    "extension": ".mp3",
+    "duration": 368.149,
+    "bpm": 120.185,
+    "key": "D minor",
+    "key_name": "D",
+    "mode": "minor",
+    "camelot": "7A",
+    "key_confidence": 0.681,
+    "phrase_points": [
+      208.202,
+      224.189,
+      240.408,
+      256.197,
+      272.196,
+      288.194,
+      304.193,
+      320.192,
+      336.19
+    ],
+    "energy_summary": {
+      "avg": 0.255,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "00ada7a0-c3e8-59a6-afe2-4543ead158c1": {
+    "track_id": "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
+    "path": "E:\\Project\\audio-engine\\tracks\\Nils Hoffmann feat. Julia Church - 9 Days.mp3",
+    "filename": "Nils Hoffmann feat. Julia Church - 9 Days.mp3",
+    "extension": ".mp3",
+    "duration": 355.377,
+    "bpm": 120.185,
+    "key": "C major",
+    "key_name": "C",
+    "mode": "major",
+    "camelot": "8B",
+    "key_confidence": 0.813,
+    "phrase_points": [
+      207.935,
+      223.643,
+      239.607,
+      255.617,
+      271.615,
+      287.869,
+      303.868,
+      320.11
+    ],
+    "energy_summary": {
+      "avg": 0.35,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "b8c7e6f6-9d9c-5cb2-9fad-08f82b44e84e": {
+    "track_id": "b8c7e6f6-9d9c-5cb2-9fad-08f82b44e84e",
+    "path": "E:\\Project\\audio-engine\\tracks\\Tinlicker & Helsloot - Because You Move Me (Extended Mix).mp3",
+    "filename": "Tinlicker & Helsloot - Because You Move Me (Extended Mix).mp3",
+    "extension": ".mp3",
+    "duration": 439.0,
+    "bpm": 123.047,
+    "key": "F major",
+    "key_name": "F",
+    "mode": "major",
+    "camelot": "7B",
+    "key_confidence": 0.504,
+    "phrase_points": [
+      249.255,
+      264.94,
+      280.462,
+      296.112,
+      311.507,
+      327.123,
+      342.727,
+      358.342,
+      373.83,
+      389.306
+    ],
+    "energy_summary": {
+      "avg": 0.379,
+      "max": 1.0,
+      "min": 0.0
+    }
+  },
+  "16f27638-6755-5448-9e05-68ac4c0d25a7": {
+    "track_id": "16f27638-6755-5448-9e05-68ac4c0d25a7",
+    "path": "E:\\Project\\audio-engine\\tracks\\Tinlicker - Light Beam.mp3",
+    "filename": "Tinlicker - Light Beam.mp3",
+    "extension": ".mp3",
+    "duration": 227.835,
+    "bpm": 123.047,
+    "key": "B minor",
+    "key_name": "B",
+    "mode": "minor",
+    "camelot": "10A",
+    "key_confidence": 0.665,
+    "phrase_points": [
+      139.9,
+      155.376,
+      171.096,
+      186.584,
+      202.072
+    ],
+    "energy_summary": {
+      "avg": 0.336,
+      "max": 1.0,
+      "min": 0.0
+    }
   }
 }

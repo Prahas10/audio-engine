@@ -4,6 +4,7 @@ import streamlit as st
 
 
 API_BASE = "http://127.0.0.1:8000"
+BASE_PREFIX = "/v1/autodj"
 
 st.set_page_config(page_title="Alalu DJ Console", layout="wide")
 
@@ -25,8 +26,8 @@ setlist_path = st.sidebar.text_input(
 )
 
 output_dir = st.sidebar.text_input(
-    "Rendered clips folder",
-    value="rendered_clips"
+    "Output folder",
+    value="outputs"
 )
 
 
@@ -56,12 +57,13 @@ def api_get(endpoint, params=None):
         return None
 
 
-tab_library, tab_queue, tab_render, tab_setlist, tab_playback = st.tabs([
+tab_library, tab_queue, tab_render, tab_setlist, tab_playback, tab_smart_stream = st.tabs([
     "Library",
     "Queue",
     "Smart Render",
     "Setlist",
-    "Playback"
+    "Playback",
+    "Smart Stream"
 ])
 
 
@@ -70,7 +72,7 @@ with tab_library:
 
     folder_path = st.text_input(
         "Folder containing tracks",
-        value="E:/Project/MixingBear"
+        value="E:/Project/audio-engine/tracks"
     )
     force_rescan = st.checkbox("Force rescan existing tracks", value=False)
     clear_existing = st.checkbox("Clear library first, then rescan", value=False)
@@ -276,3 +278,144 @@ with tab_playback:
 
             if os.path.exists(final_output_path):
                 st.audio(final_output_path)
+
+with tab_smart_stream:
+    st.header("Smart Stream / Full Set Renderer")
+
+    st.write("Build a complete DJ set from your library or from your custom queue order.")
+
+    mode = st.radio(
+        "Set mode",
+        options=[
+            "Smart optimized order",
+            "Use current queue order"
+        ]
+    )
+
+    duration_mode = st.radio(
+        "Transition duration",
+        ["Auto by strategy", "Manual override"]
+    )
+
+    preferred_mix_duration = None
+
+    if duration_mode == "Manual override":
+        preferred_mix_duration = st.number_input(
+            "Manual mix duration",
+            min_value=5,
+            max_value=120,
+            value=30
+        )
+
+    final_output_path = st.text_input(
+        "Final set output file",
+        value="outputs/final_set.wav"
+    )
+
+    starting_track_id = None
+
+    if mode == "Smart optimized order":
+        library_data = api_get(f"{BASE_PREFIX}/library/tracks", {
+            "library_path": library_path
+        })
+
+        if library_data:
+            tracks = library_data.get("tracks", [])
+
+            start_options = {"Auto choose best starting track": None}
+
+            for t in tracks:
+                label = f"{t.get('filename')} | {t.get('bpm')} BPM | {t.get('camelot')}"
+                start_options[label] = t.get("track_id")
+
+            selected_start = st.selectbox(
+                "Starting track",
+                options=list(start_options.keys())
+            )
+
+            starting_track_id = start_options[selected_start]
+
+        if st.button("Build Smart Optimized Set"):
+            data = api_post(f"{BASE_PREFIX}/set/build-and-render", {
+                "library_path": library_path,
+                "setlist_path": setlist_path,
+                "starting_track_id": starting_track_id,
+                "preferred_mix_duration": preferred_mix_duration,
+                "output_dir": output_dir,
+                "final_output_path": final_output_path,
+                "render": True
+            })
+
+            if data:
+                st.success("Smart set rendered")
+                st.session_state["smart_stream_result"] = data
+                st.json(data)
+
+    else:
+        st.info("This uses the exact current queue order: current track → upcoming tracks.")
+
+        if st.button("Render Current Queue Order"):
+            data = api_post(f"{BASE_PREFIX}/set/render-queue-order", {
+                "queue_path": queue_path,
+                "library_path": library_path,
+                "setlist_path": setlist_path,
+                "preferred_mix_duration": preferred_mix_duration,
+                "output_dir": output_dir,
+                "final_output_path": final_output_path
+            })
+
+            if data:
+                st.success("Queue-order set rendered")
+                st.session_state["smart_stream_result"] = data
+                st.json(data)
+
+    result = st.session_state.get("smart_stream_result")
+
+    st.subheader("Transition Points")
+
+    transitions = result.get("transitions", [])
+
+    if transitions:
+        transition_rows = []
+
+        for idx, transition in enumerate(transitions, start=1):
+            from_track = transition.get("from_track", {})
+            to_track = transition.get("to_track", {})
+            render = transition.get("render", {})
+            plan = transition.get("plan", {})
+
+            transition_rows.append({
+                "transition": idx,
+                "from_track": from_track.get("filename"),
+                "to_track": to_track.get("filename"),
+                "transition_start_in_track_a": render.get("snapped_transition_start_time"),
+                "track_b_entry_time": render.get("track_b_entry_time"),
+                "strategy": render.get("transition_strategy"),
+                "duration": render.get("duration_seconds"),
+            })
+
+        st.dataframe(transition_rows, use_container_width=True)
+    else:
+        st.info("No transition details available yet.")
+
+    st.subheader("Set Timeline")
+
+    timeline = result.get("timeline", [])
+
+    if timeline:
+        st.dataframe(timeline, use_container_width=True)
+    else:
+        st.info("Timeline not available yet. Backend needs to return timeline in the set render response.")
+
+    st.subheader("Final Set Preview")
+
+    final_mix = result.get("final_mix")
+
+    if final_mix:
+        output_path = final_mix.get("output_path")
+
+        if output_path and os.path.exists(output_path):
+            st.audio(output_path)
+            st.success(f"Final set saved at: {output_path}")
+        else:
+            st.warning("Final mix path returned, but file was not found locally.")

@@ -156,7 +156,43 @@ def _safe_fallback(bpm_delta, mix_duration):
         return "echo_out"
     return "reverb_wash"
  
- 
+# Returns default transition duration based on selected transition strategy
+def get_strategy_mix_duration(transition_strategy: str, bpm: float) -> float:
+    """
+    Returns a phrase-aligned mix duration in seconds for the given strategy and BPM.
+    
+    All durations are computed as multiples of one 8-bar phrase (32 beats) at the
+    playing BPM, so transitions always start and end on a musically correct boundary
+    regardless of tempo.
+    
+    phrase_duration = (60 / bpm) * 32
+    """
+    seconds_per_phrase = (60.0 / bpm) * 32
+
+    # Number of 8-bar phrases each strategy needs to complete musically.
+    # 0.5 = half a phrase (16 beats) for instant cuts.
+    strategy_phrases = {
+        "drop_mix":            0.5,
+        "loop_roll":           1.0,
+        "echo_out":            1.0,
+        "reverb_wash":         2.0,
+        "techno_filter_drive": 2.0,
+        "bass_swap":           2.0,
+        "hpf_sweep":           3.0,
+        "lpf_sweep":           3.0,
+        "percussion_blend":    2.0,
+        "phrase_mix":          3.0,
+        "energy_blend":        3.0,
+        "auto_loop":           3.0,
+        "harmonic_mix":        4.0,
+        "breakdown_blend":     4.0,
+        "long_eq_blend":       5.0,
+        "ambient_transition":  6.0,
+    }
+
+    phrases = strategy_phrases.get(transition_strategy, 2.0)
+    return round(seconds_per_phrase * phrases, 3)
+
 def choose_strategy_with_scores(
     harmonic_ok,
     bpm_a,

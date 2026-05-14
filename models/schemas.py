@@ -37,7 +37,7 @@ class FXParameters(BaseModel):
 class AutoRenderRequest(BaseModel):
     track_a_path: str
     track_b_path: str
-    preferred_mix_duration: int = 30
+    preferred_mix_duration: Optional[int] = None
     output_dir: str = "outputs"
     
 class TransitionRequest(BaseModel):
@@ -45,7 +45,7 @@ class TransitionRequest(BaseModel):
     track_b_path: str
     transition_start_time: float
     track_b_entry_time: Optional[float] = None
-    mix_duration: int = 30
+    mix_duration: Optional[int] = None
     output_dir: str = "outputs"
 
     transition_strategy: Literal[
@@ -72,7 +72,7 @@ class TransitionRequest(BaseModel):
 class PlanTransitionRequest(BaseModel):
     track_a_path: str
     track_b_path: str
-    preferred_mix_duration: int = 30
+    preferred_mix_duration: Optional[int] = None
     
 class ScanTrackRequest(BaseModel):
     track_path: str
@@ -88,13 +88,13 @@ class ScanFolderRequest(BaseModel):
 class RecommendNextRequest(BaseModel):
     current_track_id: str
     library_path: str = "storage/library_metadata.json"
-    preferred_mix_duration: int = 30
+    preferred_mix_duration: Optional[int] = None
     max_results: int = 5
 
 class SmartRouteRequest(BaseModel):
     current_track_id: str
     library_path: str = "storage/library_metadata.json"
-    preferred_mix_duration: int = 30
+    preferred_mix_duration: Optional[int] = None
     output_dir: str = "rendered_clips"
     render: bool = False
     
@@ -121,7 +121,7 @@ class QueueStateResponse(BaseModel):
 class QueueSmartRenderRequest(BaseModel):
     queue_path: str = "storage/queue_state.json"
     library_path: str = "storage/library_metadata.json"
-    preferred_mix_duration: int = 30
+    preferred_mix_duration: Optional[int] = None
     output_dir: str = "rendered_clips"
     auto_advance: bool = False
 
@@ -142,3 +142,20 @@ class AssemblePlaybackRequest(BaseModel):
     setlist_path: str = "storage/setlist_state.json"
     library_path: str = "storage/library_metadata.json"
     output_path: str = "rendered_clips/final_playback_mix.wav"
+
+class SmartSetBuildRequest(BaseModel):
+    library_path: str = "storage/library_metadata.json"
+    setlist_path: str = "storage/setlist_state.json"
+    starting_track_id: Optional[str] = None
+    preferred_mix_duration: Optional[int] = None
+    output_dir: str = "outputs"
+    final_output_path: str = "outputs/final_set.wav"
+    render: bool = True
+    
+class QueueOrderSetRenderRequest(BaseModel):
+    queue_path: str = "storage/queue_state.json"
+    library_path: str = "storage/library_metadata.json"
+    setlist_path: str = "storage/setlist_state.json"
+    preferred_mix_duration: Optional[int] = None
+    output_dir: str = "outputs"
+    final_output_path: str = "outputs/final_set.wav"

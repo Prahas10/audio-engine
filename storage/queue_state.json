@@ -1,4 +1,11 @@
 {
-  "current_track_id": null,
-  "upcoming_track_ids": []
+  "current_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
+  "upcoming_track_ids": [
+    "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+    "3168ce32-4a67-51fd-8072-b4f6e78409b9",
+    "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
+    "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
+    "f4054d22-2727-5ecb-8d99-1308d63f5a17",
+    "b8c7e6f6-9d9c-5cb2-9fad-08f82b44e84e"
+  ]
 }
