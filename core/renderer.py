@@ -29,7 +29,7 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     os.makedirs(output_dir, exist_ok=True)
 
-    print("\n--- Starting MixingBear Headless Audio Engine ---")
+    print("\n--- Starting Headless Audio Engine ---")
 
     mix_samples = int(mix_duration * TARGET_SR)
 

@@ -238,5 +238,31 @@
       "max": 1.0,
       "min": 0.0
     }
+  },
+  "14e14e6b-2866-58a3-b469-3bd5bf1c871c": {
+    "track_id": "14e14e6b-2866-58a3-b469-3bd5bf1c871c",
+    "path": "E:\\Project\\audio-engine\\tracks\\NTO (FR) - Invisible (Original Mix).wav",
+    "filename": "NTO (FR) - Invisible (Original Mix).wav",
+    "extension": ".wav",
+    "duration": 339.76,
+    "bpm": 123.047,
+    "key": "G# major",
+    "key_name": "G#",
+    "mode": "major",
+    "camelot": "4B",
+    "key_confidence": 0.634,
+    "phrase_points": [
+      187.838,
+      203.616,
+      219.231,
+      234.812,
+      250.427,
+      266.043
+    ],
+    "energy_summary": {
+      "avg": 0.348,
+      "max": 1.0,
+      "min": 0.0
+    }
   }
 }

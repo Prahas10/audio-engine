@@ -82,6 +82,8 @@ class ScanTrackRequest(BaseModel):
 class ScanFolderRequest(BaseModel):
     folder_path: str
     library_path: str = "storage/library_metadata.json"
+    force_rescan: bool = False
+    clear_existing: bool = False
 
 class RecommendNextRequest(BaseModel):
     current_track_id: str

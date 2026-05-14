@@ -93,39 +93,50 @@ def scan_and_save_track(track_path, library_path):
     return metadata
 
 
-# Scans a folder recursively for audio files and saves metadata
-def scan_folder_metadata(folder_path, library_path):
+# Scans folder, skipping already-scanned tracks unless force_rescan is enabled
+def scan_folder_metadata(folder_path, library_path, force_rescan=False, clear_existing=False):
     if not os.path.exists(folder_path):
         raise HTTPException(status_code=400, detail=f"Folder not found: {folder_path}")
 
-    audio_extensions = {
-        ".wav",
-        ".mp3",
-        ".flac",
-        ".ogg",
-        ".m4a",
-        ".aiff",
-        ".aif"
-    }
+    audio_extensions = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif"}
+
+    if clear_existing:
+        library = {}
+        os.makedirs(os.path.dirname(library_path), exist_ok=True)
+        with open(library_path, "w", encoding="utf-8") as f:
+            json.dump(library, f, indent=2)
+    else:
+        library = load_library_metadata(library_path)
 
     scanned_tracks = []
+    skipped_tracks = []
     failed_tracks = []
 
     for file_path in Path(folder_path).rglob("*"):
         if file_path.suffix.lower() not in audio_extensions:
             continue
 
+        track_path = str(file_path)
+        track_id = make_track_id(track_path)
+
+        if track_id in library and not force_rescan:
+            skipped_tracks.append({
+                "track_id": track_id,
+                "path": os.path.abspath(track_path),
+                "reason": "already_scanned"
+            })
+            continue
+
         try:
             metadata = scan_and_save_track(
-                track_path=str(file_path),
+                track_path=track_path,
                 library_path=library_path
             )
-
             scanned_tracks.append(metadata)
 
         except Exception as e:
             failed_tracks.append({
-                "path": str(file_path),
+                "path": track_path,
                 "error": str(e)
             })
 
@@ -134,8 +145,10 @@ def scan_folder_metadata(folder_path, library_path):
         "folder_path": os.path.abspath(folder_path),
         "library_path": os.path.abspath(library_path),
         "scanned_count": len(scanned_tracks),
+        "skipped_count": len(skipped_tracks),
         "failed_count": len(failed_tracks),
         "scanned_tracks": scanned_tracks,
+        "skipped_tracks": skipped_tracks,
         "failed_tracks": failed_tracks
     }
 

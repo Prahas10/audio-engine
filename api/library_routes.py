@@ -28,7 +28,9 @@ async def scan_track(req: ScanTrackRequest):
 async def scan_folder(req: ScanFolderRequest):
     return scan_folder_metadata(
         folder_path=req.folder_path,
-        library_path=req.library_path
+        library_path=req.library_path,
+        force_rescan=req.force_rescan,
+        clear_existing=req.clear_existing
     )
 
 

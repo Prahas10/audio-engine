@@ -72,11 +72,14 @@ with tab_library:
         "Folder containing tracks",
         value="E:/Project/MixingBear"
     )
-
+    force_rescan = st.checkbox("Force rescan existing tracks", value=False)
+    clear_existing = st.checkbox("Clear library first, then rescan", value=False)
     if st.button("Scan Folder"):
         data = api_post("/v1/autodj/library/scan-folder", {
             "folder_path": folder_path,
-            "library_path": library_path
+            "library_path": library_path,
+            "force_rescan": force_rescan,
+            "clear_existing": clear_existing
         })
 
         if data:
