@@ -135,3 +135,8 @@ class SetlistAddTransitionRequest(BaseModel):
 
 class SetlistStateRequest(BaseModel):
     setlist_path: str = "storage/setlist_state.json"
+
+class AssemblePlaybackRequest(BaseModel):
+    setlist_path: str = "storage/setlist_state.json"
+    library_path: str = "storage/library_metadata.json"
+    output_path: str = "rendered_clips/final_playback_mix.wav"

@@ -206,7 +206,8 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         f"Track B is {camelot_b}, harmonic compatibility is {harmonic_ok}, "
         f"BPM delta is {abs(bpm_a - bpm_b):.2f}, and the best phrase-energy point is {best_time:.2f}s."
     )
-
+    print(reason)
+    
     return {
         "status": "success",
         "recommended_transition_start_time": round(float(best_time), 3),

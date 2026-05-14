@@ -3,19 +3,19 @@
   "setlist_path": "E:\\Project\\audio-engine\\storage\\setlist_state.json",
   "transitions": [
     {
-      "current_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
-      "next_track_id": "5ac17573-5380-5949-b888-f107808ac284",
-      "transition_file": "outputs\\transition_3bf9f398.wav",
-      "transition_start_time": 357.053,
-      "track_b_entry_time": 87.481,
-      "strategy": "phrase_mix"
+      "current_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+      "next_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
+      "transition_file": "outputs\\transition_99f1775d.wav",
+      "transition_start_time": 326.391,
+      "track_b_entry_time": 29.222,
+      "strategy": "long_eq_blend"
     },
     {
       "current_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
-      "next_track_id": "5ac17573-5380-5949-b888-f107808ac284",
-      "transition_file": "outputs\\transition_e6602d9c.wav",
+      "next_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
+      "transition_file": "outputs\\transition_b8683ad3.wav",
       "transition_start_time": 357.053,
-      "track_b_entry_time": 87.481,
+      "track_b_entry_time": 17.194,
       "strategy": "phrase_mix"
     }
   ]
