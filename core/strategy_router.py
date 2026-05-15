@@ -252,39 +252,44 @@ def choose_strategy_with_scores(
 def _hpf_sweep_dispatch(segment_a, segment_b, sr, fx_parameters):
     end_freq = getattr(fx_parameters, "hpf_sweep_end_freq", None) if fx_parameters else None
     if end_freq is None:
-        end_freq = 5000.0
+        end_freq = 3500.0   # FIX: was 5000 — too aggressive
     return hpf_sweep_transition(segment_a, segment_b, sr, end_freq=end_freq)
  
  
 def _lpf_sweep_dispatch(segment_a, segment_b, sr, fx_parameters):
     end_freq = getattr(fx_parameters, "lpf_sweep_end_freq", None) if fx_parameters else None
     if end_freq is None:
-        end_freq = 300.0
+        end_freq = 400.0    # FIX: was 300 — completely muffled
     return lpf_sweep_transition(segment_a, segment_b, sr, end_freq=end_freq)
  
  
+def _bpm_from_fx(fx_parameters, default=128.0):
+    """Extract bpm from fx_parameters if present, else use default."""
+    return float(getattr(fx_parameters, "bpm", None) or default)
+ 
 def _auto_loop_dispatch(segment_a, segment_b, sr, fx_parameters):
-    """auto_loop runway is built upstream; gentlest blend over looped material."""
     return harmonic_mix_transition(segment_a, segment_b, sr)
  
  
+# FIX: echo_out, loop_roll, drop_mix all need BPM to work correctly.
+# They now read bpm from fx_parameters (added to FXParameters schema).
 _TRANSITION_DISPATCH = {
-    "bass_swap":           lambda a, b, sr, fx: bass_swap_transition(a, b, sr),
-    "harmonic_mix":        lambda a, b, sr, fx: harmonic_mix_transition(a, b, sr),
-    "phrase_mix":          lambda a, b, sr, fx: phrase_mix_transition(a, b, sr),
-    "hpf_sweep":           _hpf_sweep_dispatch,
-    "lpf_sweep":           _lpf_sweep_dispatch,
-    "reverb_wash":         lambda a, b, sr, fx: reverb_wash_transition(a, b, sr),
-    "drop_mix":            lambda a, b, sr, fx: drop_mix_transition(a, b, sr),
-    "echo_out":            lambda a, b, sr, fx: echo_out_transition(a, b, sr),
-    "loop_roll":           lambda a, b, sr, fx: loop_roll_transition(a, b, sr),
-    "long_eq_blend":       lambda a, b, sr, fx: long_eq_blend_transition(a, b, sr),
-    "energy_blend":        lambda a, b, sr, fx: energy_blend_transition(a, b, sr),
-    "percussion_blend":    lambda a, b, sr, fx: percussion_blend_transition(a, b, sr),
-    "breakdown_blend":     lambda a, b, sr, fx: breakdown_blend_transition(a, b, sr),
-    "ambient_transition":  lambda a, b, sr, fx: ambient_transition(a, b, sr),
-    "techno_filter_drive": lambda a, b, sr, fx: techno_filter_drive_transition(a, b, sr),
-    "auto_loop":           _auto_loop_dispatch,
+    "bass_swap":lambda a, b, sr, fx: bass_swap_transition(a, b, sr),
+    "harmonic_mix":lambda a, b, sr, fx: harmonic_mix_transition(a, b, sr),
+    "phrase_mix":lambda a, b, sr, fx: phrase_mix_transition(a, b, sr),
+    "hpf_sweep":_hpf_sweep_dispatch,
+    "lpf_sweep":_lpf_sweep_dispatch,
+    "reverb_wash":lambda a, b, sr, fx: reverb_wash_transition(a, b, sr),
+    "drop_mix":lambda a, b, sr, fx: drop_mix_transition(a, b, sr, bpm=_bpm_from_fx(fx)),
+    "echo_out":lambda a, b, sr, fx: echo_out_transition(a, b, sr, bpm=_bpm_from_fx(fx)),
+    "loop_roll":lambda a, b, sr, fx: loop_roll_transition(a, b, sr, bpm=_bpm_from_fx(fx)),
+    "long_eq_blend":lambda a, b, sr, fx: long_eq_blend_transition(a, b, sr),
+    "energy_blend":lambda a, b, sr, fx: energy_blend_transition(a, b, sr),
+    "percussion_blend":lambda a, b, sr, fx: percussion_blend_transition(a, b, sr),
+    "breakdown_blend":lambda a, b, sr, fx: breakdown_blend_transition(a, b, sr),
+    "ambient_transition":lambda a, b, sr, fx: ambient_transition(a, b, sr),
+    "techno_filter_drive":lambda a, b, sr, fx: techno_filter_drive_transition(a, b, sr),
+    "auto_loop":_auto_loop_dispatch,
 }
  
  

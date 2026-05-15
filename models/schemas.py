@@ -33,6 +33,9 @@ class FXParameters(BaseModel):
     apply_reverb_tail: bool = False
     loop_track_a: bool = False
     hpf_sweep_end_freq: Optional[float] = None
+    lpf_sweep_end_freq:  Optional[float] = None   # FIX: was missing
+    bpm:                 Optional[float] = None   # FIX: was missing — needed by tempo-synced transitions
+
 
 class AutoRenderRequest(BaseModel):
     track_a_path: str
