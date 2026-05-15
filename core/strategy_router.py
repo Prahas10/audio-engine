@@ -156,42 +156,48 @@ def _safe_fallback(bpm_delta, mix_duration):
         return "echo_out"
     return "reverb_wash"
  
-# Returns default transition duration based on selected transition strategy
 def get_strategy_mix_duration(transition_strategy: str, bpm: float) -> float:
     """
-    Returns a phrase-aligned mix duration in seconds for the given strategy and BPM.
-    
-    All durations are computed as multiples of one 8-bar phrase (32 beats) at the
-    playing BPM, so transitions always start and end on a musically correct boundary
-    regardless of tempo.
-    
-    phrase_duration = (60 / bpm) * 32
-    """
-    seconds_per_phrase = (60.0 / bpm) * 32
+    Returns a safe DJ transition duration.
 
-    # Number of 8-bar phrases each strategy needs to complete musically.
-    # 0.5 = half a phrase (16 beats) for instant cuts.
-    strategy_phrases = {
-        "drop_mix":            0.5,
-        "loop_roll":           1.0,
-        "echo_out":            1.0,
-        "reverb_wash":         2.0,
-        "techno_filter_drive": 2.0,
-        "bass_swap":           2.0,
-        "hpf_sweep":           3.0,
-        "lpf_sweep":           3.0,
-        "percussion_blend":    2.0,
-        "phrase_mix":          3.0,
-        "energy_blend":        3.0,
-        "auto_loop":           3.0,
-        "harmonic_mix":        4.0,
-        "breakdown_blend":     4.0,
-        "long_eq_blend":       5.0,
-        "ambient_transition":  6.0,
+    We keep transitions musical, but cap them because the engine should produce
+    practical 30s-style transition clips, not 60–90s blends.
+    """
+    if bpm is None or bpm <= 0:
+        bpm = 124.0
+
+    seconds_per_beat = 60.0 / bpm
+
+    strategy_beats = {
+        "drop_mix": 16,
+        "loop_roll": 16,
+        "echo_out": 16,
+
+        "bass_swap": 32,
+        "hpf_sweep": 32,
+        "lpf_sweep": 32,
+        "reverb_wash": 32,
+
+        "phrase_mix": 64,
+        "energy_blend": 64,
+        "percussion_blend": 64,
+        "long_eq_blend": 64,
+
+        "harmonic_mix": 64,
+        "breakdown_blend": 64,
+        "ambient_transition": 64,
+        "techno_filter_drive": 64,
+        "auto_loop": 32,
     }
 
-    phrases = strategy_phrases.get(transition_strategy, 2.0)
-    return round(seconds_per_phrase * phrases, 3)
+    beats = strategy_beats.get(transition_strategy, 64)
+    duration = seconds_per_beat * beats
+
+    # Important hard bounds
+    duration = max(16.0, duration)
+    duration = min(30.0, duration)
+
+    return round(duration, 3)
 
 def choose_strategy_with_scores(
     harmonic_ok,
@@ -248,7 +254,7 @@ def choose_strategy_with_scores(
  
     return ranked[0][0], ranked_dict
  
- 
+
 def _hpf_sweep_dispatch(segment_a, segment_b, sr, fx_parameters):
     end_freq = getattr(fx_parameters, "hpf_sweep_end_freq", None) if fx_parameters else None
     if end_freq is None:
@@ -266,6 +272,7 @@ def _lpf_sweep_dispatch(segment_a, segment_b, sr, fx_parameters):
 def _bpm_from_fx(fx_parameters, default=128.0):
     """Extract bpm from fx_parameters if present, else use default."""
     return float(getattr(fx_parameters, "bpm", None) or default)
+ 
  
 def _auto_loop_dispatch(segment_a, segment_b, sr, fx_parameters):
     return harmonic_mix_transition(segment_a, segment_b, sr)
@@ -292,7 +299,6 @@ _TRANSITION_DISPATCH = {
     "auto_loop":_auto_loop_dispatch,
 }
  
- 
 def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_parameters=None):
     handler = _TRANSITION_DISPATCH.get(transition_strategy)
     if handler is None:
@@ -301,6 +307,3 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
             detail=f"Unsupported transition_strategy: {transition_strategy}",
         )
     return handler(segment_a, segment_b, sr, fx_parameters)
- 
-
-
