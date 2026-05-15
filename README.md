@@ -1,267 +1,328 @@
-# Audio Mixing Engine 🐻🎧
+# 🐻🎧 Audio Engine — Automated DJ Transition Engine
+
+A headless, API-first automated DJ system that analyzes audio tracks, matches beats, and renders seamless crossfade transitions. Comes with a full Streamlit UI console for real-time control.
+
+---
 
 ## Overview
-Audio Mixing Engine is an automated audio mixing tool designed to act like a digital DJ. It takes two separate audio tracks and seamlessly blends them together to create a smooth transition from one song to the next.
 
-Instead of simply fading one song out and another in, the engine actually “listens” to the music. It analyzes the rhythm, tempo, and beats of both tracks to find the mathematically optimal moment to synchronize them. This ensures that when the transition occurs, the drum beats align naturally, preventing the messy and out-of-sync sound that happens when two tracks clash rhythmically.
+Audio Engine is a Python backend that acts like a digital DJ. It takes audio tracks from a library, analyzes their BPM, key, and beat positions using Librosa, then intelligently plans and renders smooth transitions between them. The system is entirely headless and API-driven — every action (scanning, queuing, rendering, assembling) is exposed as a REST endpoint via FastAPI.
 
-Whether you are building a custom DJ bot, a workout mix generator, or experimenting with intelligent audio systems, Audio Mixing Engine handles the heavy lifting of beat matching for you.
-
----
-
-# Core Features
-
-## Smart Beat Matching
-Automatically analyzes the beats and tempo of two audio files to determine the best synchronization point for a seamless transition.
-
-## Automated Crossfading
-Applies smooth volume transitions by gradually fading out Track A while fading in Track B over a configurable timeline.
-
-## Customizable Transitions
-Control exactly:
-- When the transition begins
-- How long the transition lasts
-
-Supported transition durations range from **1 to 120 seconds**.
-
-## Interactive Web UI
-Includes a browser-based dashboard where you can:
-- Paste transition JSON payloads
-- Generate transitions
-- Instantly preview the mixed output audio
-
-## Developer-Ready API
-Built using FastAPI, allowing developers to:
-- Send JSON payloads
-- Trigger transition rendering
-- Receive generated audio URLs programmatically
+A companion **Streamlit UI** (`app_ui.py`) wraps all API calls into a tabbed console called the **Alalu DJ Console**, giving you a browser-based interface for library management, queue control, transition rendering, and full-set assembly.
 
 ---
 
-# API Contract
+## Features
 
-## Endpoint
-```http
-POST /v1/engine/render-transition
-```
-
-## Request Payload
-```json
-{
-  "track_a_url": "track_a.wav",
-  "track_b_url": "track_b.wav",
-  "transition_start_time": 60.0,
-  "mix_duration": 30
-}
-```
-
-## Payload Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `track_a_url` | String | Path to the currently playing high-resolution audio |
-| `track_b_url` | String | Path to the incoming audio track |
-| `transition_start_time` | Float | Time (in seconds) inside Track A where the transition begins |
-| `mix_duration` | Integer | Length of the transition in seconds (default: 30s) |
-
-## Response
-```json
-{
-  "audio_clip_url": "/outputs/rendered_mix.wav"
-}
-```
+- **Smart Beat Matching** — Detects BPM and beat positions of each track to find the mathematically optimal synchronization point for transitions.
+- **Automated Crossfading** — Gradually fades out the outgoing track while fading in the incoming one, keeping beats aligned.
+- **Multiple Transition Strategies** — The engine selects a transition strategy (e.g., standard crossfade, beat-locked mix) based on track analysis. Mix duration is configurable from 5 to 120 seconds.
+- **Track Library Scanner** — Recursively scans a folder, extracts BPM, key, Camelot wheel notation, and duration for every audio file, and persists metadata to a JSON library.
+- **Queue Manager** — Maintain an ordered playback queue with support for adding tracks, advancing positions, and inspecting state at any time.
+- **Setlist Timeline** — Each rendered transition is logged in a persistent setlist, building a full timeline of the DJ set.
+- **Smart Set Builder** — Automatically sequences your entire library into an optimized set order (by BPM and harmonic compatibility) or renders in manual queue order.
+- **Playback Assembler** — Stitches all rendered transition clips into a single final WAV mix.
+- **Alalu DJ Console** — A full Streamlit UI with tabs for Library, Queue, Smart Render, Setlist, Playback, and Smart Stream.
 
 ---
 
-# Installation and Prerequisites
+## Project Structure
+
+```
+audio-engine/
+│
+├── main.py               # FastAPI app — registers all routers under /v1/autodj
+├── app_ui.py             # Streamlit UI — Alalu DJ Console
+├── requirements.txt      # Python dependencies
+│
+├── api/                  # FastAPI route modules
+│   ├── engine_routes.py          # Core transition render endpoint
+│   ├── library_routes.py         # Library scan & track listing
+│   ├── queue_routes.py           # Queue operations
+│   ├── queue_state_routes.py     # Queue state persistence
+│   ├── queue_smart_render_routes.py  # Smart render for current → next
+│   ├── smart_routes.py           # Smart transition planning
+│   ├── setlist_routes.py         # Setlist read/write/clear
+│   ├── playback_routes.py        # Final mix assembly
+│   └── smart_set_routes.py       # Full set build & render
+│
+├── core/                 # Business logic
+│   └── beat_matcher.py   # BPM analysis, beat sync, crossfade rendering
+│
+├── models/               # Pydantic request/response models
+│
+├── storage/              # Persisted JSON state files
+│   ├── library_metadata.json
+│   ├── queue_state.json
+│   └── setlist_state.json
+│
+├── templates/            # Jinja2 HTML templates (legacy/alternate UI)
+│
+└── outputs/              # Rendered transition WAV clips
+```
+
+---
 
 ## Prerequisites
 
-Before starting, ensure the following are installed on your system.
+### Python 3.8+
 
-### 1. Python 3.8+
-The audio engine is built using Python.
-
-Verify installation:
 ```bash
 python --version
 ```
 
----
+### FFmpeg
 
-### 2. FFmpeg
-FFmpeg is required for audio processing operations such as:
-- Cutting audio
-- Fading tracks
-- Exporting WAV/MP3 files
+Required for audio encoding, slicing, and export.
 
-### Install FFmpeg
-
-#### macOS
+**macOS**
 ```bash
 brew install ffmpeg
 ```
 
-#### Linux
+**Linux**
 ```bash
 sudo apt install ffmpeg
 ```
 
-#### Windows
-Download from the official FFmpeg website or install via Chocolatey:
-
+**Windows**
 ```bash
 choco install ffmpeg
 ```
+Or download from [ffmpeg.org](https://ffmpeg.org/download.html).
 
 ---
 
-# Installation Steps
+## Installation
 
-## 1. Clone or Download the Project
+**1. Clone the repository**
 
-Ensure your project structure looks like this:
-
-```text
-project/
-│
-├── main.py
-├── requirements.txt
-├── templates/
-│   └── index.html
-└── outputs/
+```bash
+git clone https://github.com/Prahas10/audio-engine.git
+cd audio-engine
 ```
 
----
+**2. Create a virtual environment (recommended)**
 
-## 2. Create a Virtual Environment (Recommended)
-
-Using a virtual environment keeps dependencies isolated.
-
-### macOS/Linux
 ```bash
+# macOS / Linux
 python -m venv venv
 source venv/bin/activate
-```
 
-### Windows
-```bash
+# Windows
 python -m venv venv
 venv\Scripts\activate
 ```
 
----
-
-## 3. Install Python Dependencies
-
-Install all required packages:
+**3. Install dependencies**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Typical dependencies include:
-- FastAPI
-- Uvicorn
-- Librosa
-- NumPy
-- SoundFile
-- Pydub
-- Jinja2
+Dependencies: `fastapi`, `uvicorn`, `librosa`, `numpy`, `pydub`, `soundfile`, `jinja2`, `python-multipart`
 
----
+**4. Create output directories**
 
-## 4. Prepare Audio Files
-
-Place your audio files inside the project directory or provide absolute paths.
-
-Example:
-```text
-track_a.wav
-track_b.wav
+```bash
+mkdir -p outputs storage
 ```
 
-You can reference them directly inside the JSON payload.
-
----
-
-## 5. Start the FastAPI Server
-
-Run the application using Uvicorn:
+**5. Start the API server**
 
 ```bash
 uvicorn main:app --reload
 ```
 
-If successful, you should see:
+Server runs at `http://127.0.0.1:8000`.
 
-```text
-INFO:     Uvicorn running on http://127.0.0.1:8000
-```
-
----
-
-## 6. Access the Web App
-
-Open your browser and navigate to:
-
-```text
-http://127.0.0.1:8000
-```
-
-You will see the Audio Mixing Engine dashboard where you can:
-- Upload transition payloads
-- Generate transitions
-- Listen to rendered mixes directly in the browser
-
----
-
-# Example Request Using cURL
+**6. Start the Streamlit UI (optional, separate terminal)**
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/v1/engine/render-transition" \
--H "Content-Type: application/json" \
--d '{
-  "track_a_url": "track_a.wav",
-  "track_b_url": "track_b.wav",
-  "transition_start_time": 45.0,
-  "mix_duration": 30
-}'
+streamlit run app_ui.py
 ```
 
 ---
 
-# Example Workflow
+## API Reference
 
-1. User uploads or references two tracks
-2. Audio Mixing Engine analyzes BPM and beat positions
-3. The engine determines the best synchronization point
-4. Crossfading and beat alignment are applied
-5. A rendered transition clip is exported
-6. The generated audio URL is returned to the client
+All routes are prefixed with `/v1/autodj`.
+
+### Library
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/library/scan-folder` | Scan a folder and extract metadata for all tracks |
+| `GET`  | `/library/tracks` | List all tracks in the library |
+
+**Scan folder payload**
+```json
+{
+  "folder_path": "/path/to/tracks",
+  "library_path": "storage/library_metadata.json",
+  "force_rescan": false,
+  "clear_existing": false
+}
+```
+
+### Queue State
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/queue-state/create` | Initialize or reset the queue |
+| `GET`  | `/queue-state/state` | Get current queue contents |
+| `POST` | `/queue-state/add-track` | Add a track to the queue |
+| `POST` | `/queue-state/advance` | Advance the queue to the next track |
+
+### Transition Rendering
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/queue/smart-render` | Render a transition from the current queue position to the next |
+| `POST` | `/engine/render-transition` | Render a direct transition between two specified tracks |
+
+**Smart render payload**
+```json
+{
+  "queue_path": "storage/queue_state.json",
+  "library_path": "storage/library_metadata.json",
+  "preferred_mix_duration": 30,
+  "output_dir": "outputs",
+  "auto_advance": false
+}
+```
+
+**Direct render payload**
+```json
+{
+  "track_a_url": "tracks/song_a.wav",
+  "track_b_url": "tracks/song_b.wav",
+  "transition_start_time": 60.0,
+  "mix_duration": 30
+}
+```
+
+**Response**
+```json
+{
+  "audio_clip_url": "outputs/rendered_mix.wav"
+}
+```
+
+### Setlist
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/setlist/state` | Get the full setlist timeline |
+| `POST` | `/setlist/clear` | Clear the setlist |
+
+### Playback Assembly
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/playback/assemble` | Stitch all transition clips into a final WAV |
+
+**Payload**
+```json
+{
+  "setlist_path": "storage/setlist_state.json",
+  "library_path": "storage/library_metadata.json",
+  "output_path": "outputs/final_mix.wav"
+}
+```
+
+### Smart Set Builder
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/set/build-and-render` | Auto-sequence and render a full optimized DJ set |
+| `POST` | `/set/render-queue-order` | Render the full set in the current queue order |
+
+**Build-and-render payload**
+```json
+{
+  "library_path": "storage/library_metadata.json",
+  "setlist_path": "storage/setlist_state.json",
+  "starting_track_id": null,
+  "preferred_mix_duration": 30,
+  "output_dir": "outputs",
+  "final_output_path": "outputs/final_set.wav",
+  "render": true
+}
+```
 
 ---
 
-# Tech Stack
+## Alalu DJ Console (Streamlit UI)
 
-| Technology | Purpose |
-|---|---|
-| Python | Core backend logic |
+Run `streamlit run app_ui.py` and open the displayed URL in your browser. The console has six tabs:
+
+| Tab | What it does |
+|-----|-------------|
+| **Library** | Scan a folder of tracks and browse the library with BPM, key, and Camelot info |
+| **Queue** | Build and manage your playback queue, add tracks, and advance position |
+| **Smart Render** | Render the next transition from the current queue position, preview audio in-browser |
+| **Setlist** | View the full transition timeline, play back individual clips |
+| **Playback** | Assemble all clips into a final continuous mix WAV |
+| **Smart Stream** | Build an entire DJ set — either auto-optimized or in manual queue order — and preview the full set with a timeline view |
+
+Configure library, queue, and output paths in the sidebar.
+
+---
+
+## Typical Workflow
+
+1. **Scan** your tracks folder via the Library tab → metadata extracted and saved.
+2. **Build a queue** by adding tracks in the order you want (or let Smart Stream auto-sequence).
+3. **Smart Render** each transition one by one, previewing the output audio each time.
+4. **Assemble** the final set in the Playback tab to get a single continuous WAV.
+
+Or use **Smart Stream → Build Smart Optimized Set** to do steps 2–4 in one click.
+
+---
+
+## Example cURL Request
+
+```bash
+curl -X POST "http://127.0.0.1:8000/v1/autodj/engine/render-transition" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "track_a_url": "tracks/song_a.wav",
+    "track_b_url": "tracks/song_b.wav",
+    "transition_start_time": 45.0,
+    "mix_duration": 30
+  }'
+```
+
+---
+
+## Tech Stack
+
+| Technology | Role |
+|------------|------|
+| Python 3.8+ | Core language |
 | FastAPI | REST API framework |
-| Librosa | Beat and tempo analysis |
-| Pydub | Audio manipulation |
-| FFmpeg | Audio encoding/export |
 | Uvicorn | ASGI server |
+| Librosa | BPM detection & beat analysis |
+| Pydub | Audio slicing & crossfade |
+| SoundFile | WAV read/write |
+| FFmpeg | Audio encoding & export |
+| Streamlit | DJ Console UI |
 | Jinja2 | HTML templating |
 
 ---
 
-# Future Improvements
+## Roadmap
 
-Potential enhancements for MixingBear include:
 - AI-based harmonic key matching
-- Automatic EQ balancing
-- Streaming audio support
-- Multi-track DJ queue support
-- Spotify/SoundCloud integration
+- Automatic EQ and frequency balancing at transition points
+- Streaming audio output support
+- Multi-track DJ queue with lookahead planning
+- Spotify / SoundCloud integration for track sourcing
 - GPU-accelerated audio analysis
+
+---
+
+## License
+
+This project is unlicensed. Contact the author for usage permissions.

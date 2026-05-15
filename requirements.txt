@@ -6,3 +6,4 @@
     soundfile
     jinja2
     python-multipart
+    streamlit
