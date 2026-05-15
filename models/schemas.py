@@ -65,7 +65,7 @@ class TransitionRequest(BaseModel):
         "breakdown_blend",
         "ambient_transition",
         "techno_filter_drive"
-    ] = "bass_swap"
+    ] = "long_eq_blend"
 
     fx_parameters: FXParameters = FXParameters()
 

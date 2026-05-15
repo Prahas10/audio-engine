@@ -138,6 +138,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
     harmonic_ok = camelot_compatible(camelot_a, camelot_b)
 
     energy_times_a, energy_values_a = get_energy_curve(y_a, TARGET_SR)
+    energy_times_b, energy_values_b = get_energy_curve(y_b, TARGET_SR)
 
     candidates = phrase_boundary_candidates(
         beats=beats_a,
@@ -148,7 +149,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
 # Keep phrase candidates in the DJ-friendly outro zone
     candidates = [
         p for p in candidates
-        if duration_a * 0.65 <= p <= duration_a * 0.92
+        if duration_a * 0.55 <= p <= duration_a * 0.88
     ]
     
     if not candidates:
@@ -169,52 +170,60 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
     best_time = candidates[0]
     best_start_sample_a = int(best_time * TARGET_SR)
 
-    start_sample_b, sync_accuracy = find_best_sync_point(
-        track_a_beats=beats_a,
-        track_b_beats=beats_b,
-        transition_start_sample=best_start_sample_a,
-        mix_samples=planning_mix_samples,
-        offset_samples=int(0.027 * TARGET_SR)
+    b_phrase_candidates = track_b_intro_phrase_candidates(
+        beats_b=beats_b,
+        sr=TARGET_SR,
+        duration_b=duration_b,
+        phrase_beats=32,
     )
 
-    track_b_entry_time = start_sample_b / TARGET_SR
+    if not b_phrase_candidates:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find Track B phrase candidates."
+        )
+
+    track_b_entry_time = b_phrase_candidates[0]
+    start_sample_b = int(track_b_entry_time * TARGET_SR)
+    sync_accuracy = 1.0
     scored_candidates = []
 
-    for candidate_time in candidates:
-        energy_score = local_energy_score(
-            candidate_time=candidate_time,
-            energy_times=energy_times_a,
-            energy_values=energy_values_a,
-            window_seconds=20
-        )
+    scored_candidates = []
+    best_score = -1
+    best_time = candidates[0]
+    track_b_entry_time = b_phrase_candidates[0]
+    start_sample_b = int(track_b_entry_time * TARGET_SR)
 
-        r_score = runway_score(
-            candidate_time=candidate_time,
-            song_duration=duration_a,
-            mix_duration=planning_mix_duration
-        )
+    for candidate_a_time in candidates:
+        for candidate_b_time in b_phrase_candidates:
+            total_score, score_parts = score_phrase_pair(
+                candidate_a_time=candidate_a_time,
+                candidate_b_time=candidate_b_time,
+                energy_times_a=energy_times_a,
+                energy_values_a=energy_values_a,
+                energy_times_b=energy_times_b,
+                energy_values_b=energy_values_b,
+                duration_a=duration_a,
+                mix_duration=planning_mix_duration,
+                harmonic_ok=harmonic_ok,
+            )
 
-        # Phrase candidates are already phrase-aligned, so phrase score is strong.
-        phrase_score = 1.0
+            scored_candidates.append({
+                "track_a_time": round(float(candidate_a_time), 3),
+                "track_b_time": round(float(candidate_b_time), 3),
+                "score": round(float(total_score), 3),
+                **score_parts,
+            })
 
-        total_score = (
-            phrase_score * 0.35
-            + energy_score * 0.40
-            + r_score * 0.25
-        )
+            if total_score > best_score:
+                best_score = total_score
+                best_time = candidate_a_time
+                track_b_entry_time = candidate_b_time
+                start_sample_b = int(track_b_entry_time * TARGET_SR)
+                best_energy_score = score_parts["a_energy_score"]
+                best_runway_score = score_parts["runway_score"]
 
-        scored_candidates.append({
-            "time": round(float(candidate_time), 3),
-            "score": round(float(total_score), 3),
-            "energy_score": round(float(energy_score), 3),
-            "runway_score": round(float(r_score), 3)
-        })
-
-        if total_score > best_score:
-            best_score = total_score
-            best_time = candidate_time
-            best_energy_score = energy_score
-            best_runway_score = r_score
+    sync_accuracy = 1.0
 
     strategy, strategy_scores = choose_strategy_with_scores(
         harmonic_ok=harmonic_ok,
@@ -268,7 +277,7 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
             "key_confidence": round(float(key_conf_b), 3)
         },
         "harmonic_compatible": harmonic_ok,
-        "top_candidate_points": sorted(
+        "top_phrase_pairs": sorted(
             scored_candidates,
             key=lambda x: x["score"],
             reverse=True
@@ -287,4 +296,71 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
                 "hpf_sweep_end_freq": 5000 if strategy == "hpf_sweep" else None
             }
         }
+    }
+    
+def track_b_intro_phrase_candidates(beats_b, sr, duration_b, phrase_beats=32):
+    """
+    Finds phrase starts in the intro/early section of Track B.
+    This prevents Track B from entering on a random beat.
+    """
+    phrase_times = get_phrase_boundaries(beats_b, sr, phrase_beats)
+
+    if not phrase_times:
+        return []
+
+    candidates = [
+        t for t in phrase_times
+        if 0 <= t <= duration_b * 0.35
+    ]
+
+    return candidates or phrase_times[:4]
+
+def score_phrase_pair(
+    candidate_a_time,
+    candidate_b_time,
+    energy_times_a,
+    energy_values_a,
+    energy_times_b,
+    energy_values_b,
+    duration_a,
+    mix_duration,
+    harmonic_ok,
+):
+    """
+    Scores A/B phrase combinations instead of only scoring Track A.
+    """
+    a_energy_score = local_energy_score(
+        candidate_time=candidate_a_time,
+        energy_times=energy_times_a,
+        energy_values=energy_values_a,
+        window_seconds=20,
+    )
+
+    b_energy_score = local_energy_score(
+        candidate_time=candidate_b_time,
+        energy_times=energy_times_b,
+        energy_values=energy_values_b,
+        window_seconds=20,
+    )
+
+    r_score = runway_score(
+        candidate_time=candidate_a_time,
+        song_duration=duration_a,
+        mix_duration=mix_duration,
+    )
+
+    harmonic_score = 1.0 if harmonic_ok else 0.45
+
+    total_score = (
+        0.30 * a_energy_score +
+        0.25 * b_energy_score +
+        0.20 * r_score +
+        0.25 * harmonic_score
+    )
+
+    return float(np.clip(total_score, 0.0, 1.0)), {
+        "a_energy_score": round(float(a_energy_score), 3),
+        "b_energy_score": round(float(b_energy_score), 3),
+        "runway_score": round(float(r_score), 3),
+        "harmonic_score": round(float(harmonic_score), 3),
     }

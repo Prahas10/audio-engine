@@ -72,7 +72,7 @@ def phrase_boundary_candidates(beats, sr, song_duration, phrase_beats=32):
         return []
 
     start_search = song_duration * 0.55
-    end_search = song_duration * 0.92
+    end_search = song_duration * 0.88
 
     candidates = []
 
@@ -83,6 +83,18 @@ def phrase_boundary_candidates(beats, sr, song_duration, phrase_beats=32):
             candidates.append(t)
 
     return candidates
+
+def get_phrase_boundaries(beats, sr, phrase_beats=32):
+    beat_times = librosa.samples_to_time(beats, sr=sr)
+
+    if len(beat_times) == 0:
+        return []
+
+    phrase_times = []
+    for i in range(0, len(beat_times), phrase_beats):
+        phrase_times.append(float(beat_times[i]))
+
+    return phrase_times
 
 
 # Checks if two Camelot keys are compatible (adjacent on the circle of fifths or relative major/minor).

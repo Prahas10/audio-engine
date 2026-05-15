@@ -19,8 +19,16 @@ def ensure_mono(y):
 
 
 # The primary engine function: handles loading, stretching, syncing, and rendering the final transition audio file.    
-def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_duration, output_dir,transition_strategy="bass_swap",
-    fx_parameters=None,track_b_entry_time=None):
+def render_dj_transition(
+    track_a_path,
+    track_b_path,
+    transition_start_time,
+    mix_duration,
+    output_dir,
+    transition_strategy="long_eq_blend",
+    fx_parameters=None,
+    track_b_entry_time=None
+):
     if not os.path.exists(track_a_path):
         raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
 
@@ -69,20 +77,13 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     print(f"Track B BPM after stretch: {bpm_b_after:.2f}")
 
-    if transition_strategy == "phrase_mix":
-        print("Snapping to phrase boundary...")
-        snapped_start_time, start_sample_a = snap_to_phrase_boundary(
-            beats=beats_a,
-            requested_time=transition_start_time,
-            sr=TARGET_SR,
-            phrase_beats=32
-        )
-    else:
-        beat_times_a = librosa.samples_to_time(beats_a, sr=TARGET_SR)
-        closest_beat_idx = np.argmin(np.abs(beat_times_a - transition_start_time))
-
-        snapped_start_time = float(beat_times_a[closest_beat_idx])
-        start_sample_a = int(snapped_start_time * TARGET_SR)
+    print("Snapping Track A to 32-beat phrase boundary...")
+    snapped_start_time, start_sample_a = snap_to_phrase_boundary(
+        beats=beats_a,
+        requested_time=transition_start_time,
+        sr=TARGET_SR,
+        phrase_beats=32
+    )
 
     print(f"Requested start: {transition_start_time:.3f}s")
     print(f"Snapped start: {snapped_start_time:.3f}s")
@@ -179,19 +180,9 @@ def render_dj_transition(track_a_path, track_b_path, transition_start_time, mix_
 
     print(f"Track B RMS gain applied: {rms_gain:.3f}")
 
-    print("Performing micro phase alignment...")
-    shift, polarity_flip = phase_align(segment_a, segment_b, TARGET_SR)
-
-    if polarity_flip:
-        print("Polarity flip detected. Flipping Track B.")
-        segment_b = -segment_b
-
-    if shift > 0:
-        segment_b = np.pad(segment_b, (shift, 0))[:mix_samples]
-    elif shift < 0:
-        segment_b = np.pad(segment_b[abs(shift):], (0, abs(shift)))[:mix_samples]
-
-    print(f"Phase shift applied: {shift} samples")
+    print("Skipping micro phase alignment for phrase-aware test render.")
+    shift = 0
+    polarity_flip = False
 
     print(f"Applying transition strategy: {transition_strategy}")
 
