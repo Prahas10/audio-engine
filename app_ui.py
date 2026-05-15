@@ -43,6 +43,14 @@ def api_post(endpoint, payload):
         st.error(f"API error: {e}")
         return None
 
+def format_mmss(seconds):
+    if seconds is None:
+        return None
+
+    seconds = float(seconds)
+    minutes = int(seconds // 60)
+    secs = int(round(seconds % 60))
+    return f"{minutes}:{secs:02d}"
 
 # Calls backend GET safely
 def api_get(endpoint, params=None):
@@ -371,51 +379,36 @@ with tab_smart_stream:
 
     result = st.session_state.get("smart_stream_result")
 
-    st.subheader("Transition Points")
+    if result:
+            st.subheader("Set Timeline")
+            
+            transitions = result.get("transitions", [])
+            timeline = result.get("timeline", [])
 
-    transitions = result.get("transitions", [])
+            if timeline:
+                clean_timeline = []
+                for i, entry in enumerate(timeline):
+                    # The first track doesn't have a 'previous' transition
+                    strategy_used = "N/A (Starting Track)"
+                    if i > 0 and (i - 1) < len(transitions):
+                        render_data = transitions[i-1].get("render", {})
+                        strategy_used = render_data.get("transition_strategy", "Unknown")
 
-    if transitions:
-        transition_rows = []
+                    clean_timeline.append({
+                        "Start Time": entry.get("start_in_set"),
+                        "Track Name": entry.get("filename"),
+                        "Transition Used": strategy_used,
 
-        for idx, transition in enumerate(transitions, start=1):
-            from_track = transition.get("from_track", {})
-            to_track = transition.get("to_track", {})
-            render = transition.get("render", {})
-            plan = transition.get("plan", {})
+                    })
 
-            transition_rows.append({
-                "transition": idx,
-                "from_track": from_track.get("filename"),
-                "to_track": to_track.get("filename"),
-                "transition_start_in_track_a": render.get("snapped_transition_start_time"),
-                "track_b_entry_time": render.get("track_b_entry_time"),
-                "strategy": render.get("transition_strategy"),
-                "duration": render.get("duration_seconds"),
-            })
-
-        st.dataframe(transition_rows, use_container_width=True)
-    else:
-        st.info("No transition details available yet.")
-
-    st.subheader("Set Timeline")
-
-    timeline = result.get("timeline", [])
-
-    if timeline:
-        st.dataframe(timeline, use_container_width=True)
-    else:
-        st.info("Timeline not available yet. Backend needs to return timeline in the set render response.")
-
-    st.subheader("Final Set Preview")
-
-    final_mix = result.get("final_mix")
-
-    if final_mix:
-        output_path = final_mix.get("output_path")
-
-        if output_path and os.path.exists(output_path):
-            st.audio(output_path)
-            st.success(f"Final set saved at: {output_path}")
-        else:
-            st.warning("Final mix path returned, but file was not found locally.")
+                st.dataframe(clean_timeline, use_container_width=True)
+                
+                # Final Audio Preview
+                final_mix = result.get("final_mix")
+                if final_mix:
+                    output_path = final_mix.get("output_path")
+                    if output_path and os.path.exists(output_path):
+                        st.audio(output_path)
+                        st.success(f"Full set ready: {output_path}")
+            else:
+                st.info("No timeline data available. Please render a set first.")
