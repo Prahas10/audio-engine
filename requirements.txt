@@ -1,9 +1,12 @@
-    fastapi
-    uvicorn
-    librosa
-    numpy
-    pydub
-    soundfile
-    jinja2
-    python-multipart
-    streamlit
+fastapi
+uvicorn
+librosa
+numpy==1.23.5
+scipy
+cython
+madmom
+pydub
+soundfile
+jinja2
+python-multipart
+streamlit
