@@ -1,52 +1,76 @@
 {
   "transitions": [
     {
-      "current_track_id": "f1655474-d591-59af-97b2-5de9486aeb1c",
-      "next_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
-      "transition_file": "outputs\\transition_d911fa62.wav",
-      "transition_start_time": 357.053,
-      "track_b_entry_time": 0.255,
-      "strategy": "phrase_mix"
-    },
-    {
-      "current_track_id": "05864791-8802-5bc2-a3e9-f52c57fd05ee",
-      "next_track_id": "3168ce32-4a67-51fd-8072-b4f6e78409b9",
-      "transition_file": "outputs\\transition_94d01ded.wav",
-      "transition_start_time": 326.391,
-      "track_b_entry_time": 162.969,
+      "current_track_id": "8fe53683-8ce9-5ca5-b3a3-cc60ecec4bed",
+      "next_track_id": "3a4dc969-db77-5388-b2d4-af4badafc4ad",
+      "transition_file": "outputs\\transition_898afc33.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_898afc33.wav",
+      "transition_start_time": 294.37,
+      "track_b_entry_time": 60.73,
+      "mix_duration": 30.0,
+      "track_b_suffix_start_time": 90.73,
+      "track_b_suffix_duration": 284.994,
       "strategy": "percussion_blend"
     },
     {
-      "current_track_id": "3168ce32-4a67-51fd-8072-b4f6e78409b9",
-      "next_track_id": "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
-      "transition_file": "outputs\\transition_f272ef31.wav",
-      "transition_start_time": 294.104,
-      "track_b_entry_time": 210.001,
-      "strategy": "hpf_sweep"
+      "current_track_id": "3a4dc969-db77-5388-b2d4-af4badafc4ad",
+      "next_track_id": "dbb5ef81-b9da-50ab-a1b2-0ffe4e37556c",
+      "transition_file": "outputs\\transition_b03f0ec4.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_b03f0ec4.wav",
+      "transition_start_time": 247.98,
+      "track_b_entry_time": 45.13,
+      "mix_duration": 30.0,
+      "track_b_suffix_start_time": 75.13,
+      "track_b_suffix_duration": 263.366,
+      "strategy": "percussion_blend"
     },
     {
-      "current_track_id": "ca2d6718-eabf-59f2-8ab3-1107ee9d27c8",
-      "next_track_id": "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
-      "transition_file": "outputs\\transition_3b457449.wav",
-      "transition_start_time": 312.216,
-      "track_b_entry_time": 213.879,
-      "strategy": "energy_blend"
+      "current_track_id": "dbb5ef81-b9da-50ab-a1b2-0ffe4e37556c",
+      "next_track_id": "0095583c-eb8f-52eb-97b4-25b1274ec5ac",
+      "transition_file": "outputs\\transition_4b1ba2a9.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_4b1ba2a9.wav",
+      "transition_start_time": 216.89,
+      "track_b_entry_time": 79.27,
+      "mix_duration": 16.0,
+      "track_b_suffix_start_time": 95.27,
+      "track_b_suffix_duration": 311.327,
+      "strategy": "bass_swap"
     },
     {
-      "current_track_id": "00ada7a0-c3e8-59a6-afe2-4543ead158c1",
-      "next_track_id": "f4054d22-2727-5ecb-8d99-1308d63f5a17",
-      "transition_file": "outputs\\transition_2023d83b.wav",
-      "transition_start_time": 271.615,
-      "track_b_entry_time": 0.186,
+      "current_track_id": "0095583c-eb8f-52eb-97b4-25b1274ec5ac",
+      "next_track_id": "227c4131-f71e-55cd-b946-cd7da4cc0ea2",
+      "transition_file": "outputs\\transition_bd4a7827.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_bd4a7827.wav",
+      "transition_start_time": 311.96,
+      "track_b_entry_time": 47.6,
+      "mix_duration": 30.0,
+      "track_b_suffix_start_time": 77.6,
+      "track_b_suffix_duration": 285.032,
       "strategy": "techno_filter_drive"
     },
     {
-      "current_track_id": "f4054d22-2727-5ecb-8d99-1308d63f5a17",
-      "next_track_id": "b8c7e6f6-9d9c-5cb2-9fad-08f82b44e84e",
-      "transition_file": "outputs\\transition_472f69c6.wav",
-      "transition_start_time": 336.19,
-      "track_b_entry_time": 119.838,
-      "strategy": "echo_out"
+      "current_track_id": "227c4131-f71e-55cd-b946-cd7da4cc0ea2",
+      "next_track_id": "5971fda5-1f9d-5545-918f-de10ca20a0c9",
+      "transition_file": "outputs\\transition_321a29c9.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_321a29c9.wav",
+      "transition_start_time": 272.1,
+      "track_b_entry_time": 63.16,
+      "mix_duration": 30.0,
+      "track_b_suffix_start_time": 93.16,
+      "track_b_suffix_duration": 274.989,
+      "strategy": "percussion_blend"
+    },
+    {
+      "current_track_id": "5971fda5-1f9d-5545-918f-de10ca20a0c9",
+      "next_track_id": "27248106-3331-5e09-809e-8edb15b5e658",
+      "transition_file": "outputs\\transition_c9684c42.wav",
+      "track_b_suffix_file": "outputs\\track_b_suffix_c9684c42.wav",
+      "transition_start_time": 208.19,
+      "track_b_entry_time": 45.39,
+      "mix_duration": 16.0,
+      "track_b_suffix_start_time": 61.39,
+      "track_b_suffix_duration": 368.826,
+      "strategy": "drop_mix"
     }
   ]
 }

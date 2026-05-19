@@ -3,10 +3,8 @@ import numpy as np
 import librosa
 from fastapi import HTTPException
 
-from core.analysis import (
-    TARGET_SR, safe_bpm, estimate_key, get_energy_curve,
-    get_phrase_boundaries, camelot_compatible,
-)
+from core.analysis import *
+from core.library import get_track_metadata
 from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration
 from models.schemas import CAMELOT_MAP
 
@@ -18,12 +16,12 @@ from models.schemas import CAMELOT_MAP
 def clamp01(x):
     return float(np.clip(x, 0.0, 1.0))
 
-def safe_mean(values, default=0.0):
-    v = np.asarray(values)
+def safe_mean(v, default=0.0):
+    v = np.asarray(v)
     return float(np.mean(v)) if len(v) > 0 else default
 
-def safe_std(values, default=0.0):
-    v = np.asarray(values)
+def safe_std(v, default=0.0):
+    v = np.asarray(v)
     return float(np.std(v)) if len(v) > 0 else default
 
 def get_window_values(times, values, start, end):
@@ -33,45 +31,145 @@ def get_window_values(times, values, start, end):
 
 
 # ---------------------------------------------------------------------------
+# Vocal detection
+# ---------------------------------------------------------------------------
+
+def detect_vocal_regions(y, sr, hop_length=512, threshold=0.45):
+    """
+    Estimates vocal presence using spectral flatness and harmonic ratio.
+
+    Vocals occupy the 300–3400 Hz range and have a distinct harmonic structure
+    that makes them less spectrally flat than noise/percussion. This combines:
+    - Low spectral flatness (harmonic content)
+    - Energy in the vocal frequency band (300–3400 Hz)
+    - High harmonic-to-percussive ratio
+
+    Returns an array of (time, vocal_probability) pairs, and a boolean mask
+    at hop_length resolution where True = vocal likely present.
+
+    This is not perfect but is fast and avoids requiring Spleeter/Demucs.
+    """
+    # Harmonic-percussive separation
+    y_harm, y_perc = librosa.effects.hpss(y)
+
+    # Spectral flatness — low = tonal/harmonic (vocals), high = noise
+    flatness = librosa.feature.spectral_flatness(y=y_harm, hop_length=hop_length)[0]
+
+    # Energy ratio in vocal band vs total
+    S    = np.abs(librosa.stft(y, hop_length=hop_length))
+    freqs = librosa.fft_frequencies(sr=sr)
+    vocal_mask = (freqs >= 300) & (freqs <= 3400)
+    total_energy = np.sum(S, axis=0) + 1e-9
+    vocal_energy = np.sum(S[vocal_mask, :], axis=0) / total_energy
+
+    # Harmonic energy fraction
+    S_harm = np.abs(librosa.stft(y_harm, hop_length=hop_length))
+    harm_energy = np.sum(S_harm, axis=0) / (np.sum(S, axis=0) + 1e-9)
+
+    min_len = min(len(flatness), len(vocal_energy), len(harm_energy))
+    flatness     = flatness[:min_len]
+    vocal_energy = vocal_energy[:min_len]
+    harm_energy  = harm_energy[:min_len]
+
+    # Normalize flatness (inverted — low flatness = more vocal-like)
+    flat_norm = 1.0 - np.clip(flatness / (np.max(flatness) + 1e-9), 0.0, 1.0)
+
+    # Combined vocal probability
+    vocal_prob = (0.40 * flat_norm + 0.35 * vocal_energy + 0.25 * harm_energy)
+    vocal_prob = np.clip(vocal_prob, 0.0, 1.0)
+
+    times    = librosa.frames_to_time(np.arange(min_len), sr=sr, hop_length=hop_length)
+    is_vocal = vocal_prob > threshold
+
+    return times, vocal_prob, is_vocal
+
+
+def vocal_density_at(vocal_times, vocal_prob, candidate_time, window_seconds=8.0):
+    """
+    Returns the mean vocal probability in a window around candidate_time.
+    Higher = more vocals present = worse transition point.
+    """
+    window = get_window_values(vocal_times, vocal_prob,
+                               candidate_time - window_seconds * 0.5,
+                               candidate_time + window_seconds * 0.5)
+    return float(np.mean(window)) if len(window) > 0 else 0.0
+
+
+def vocal_free_score(vocal_density):
+    """
+    Converts a vocal density measure to a score where 1.0 = no vocals.
+    Heavily penalises transition points with lots of vocals.
+    """
+    return clamp01(1.0 - vocal_density * 2.5)
+
+
+# ---------------------------------------------------------------------------
+# Track loading (reuses library metadata to avoid double-analysing)
+# ---------------------------------------------------------------------------
+
+def load_or_analyze_track(track_path, library_path=None):
+    metadata = None
+    if library_path:
+        metadata = get_track_metadata(track_path, library_path)
+
+    y, _ = librosa.load(track_path, sr=TARGET_SR, mono=True)
+    duration = librosa.get_duration(y=y, sr=TARGET_SR)
+
+    if metadata:
+        bpm       = float(metadata["bpm"])
+        beats     = np.asarray(
+            librosa.time_to_samples(metadata.get("beats", []), sr=TARGET_SR), dtype=int)
+        downbeats = np.asarray(
+            librosa.time_to_samples(metadata.get("downbeats", []), sr=TARGET_SR), dtype=int)
+        key       = metadata.get("key_name")
+        mode      = metadata.get("mode")
+        key_conf  = float(metadata.get("key_confidence", 0.0))
+        camelot   = metadata.get("camelot")
+        energy_times, energy_values = get_energy_curve(y, TARGET_SR)
+
+        return dict(y=y, duration=duration, bpm=bpm, beats=beats, downbeats=downbeats,
+                    key=key, mode=mode, key_confidence=key_conf, camelot=camelot,
+                    energy_times=energy_times, energy_values=energy_values,
+                    metadata_used=True, metadata=metadata)
+
+    bpm, beats, downbeats = safe_bpm_from_path(track_path, TARGET_SR)
+    key, mode, key_conf   = estimate_key(y, TARGET_SR)
+    camelot               = CAMELOT_MAP.get((key, mode))
+    energy_times, energy_values = get_energy_curve(y, TARGET_SR)
+
+    return dict(y=y, duration=duration, bpm=bpm, beats=beats, downbeats=downbeats,
+                key=key, mode=mode, key_confidence=key_conf, camelot=camelot,
+                energy_times=energy_times, energy_values=energy_values,
+                metadata_used=False, metadata=None)
+
+
+# ---------------------------------------------------------------------------
 # Scoring components
 # ---------------------------------------------------------------------------
 
 def local_energy_shape_score(candidate_time, energy_times, energy_values, window_seconds=16):
-    """
-    Good outgoing transition points have stable or slightly falling energy.
-    """
     before = get_window_values(energy_times, energy_values,
                                candidate_time - window_seconds, candidate_time)
     after  = get_window_values(energy_times, energy_values,
                                candidate_time, candidate_time + window_seconds)
-
     if len(before) < 2 or len(after) < 2:
         return 0.45
-
-    drop      = safe_mean(before) - safe_mean(after)
-    stability = 1.0 - min(safe_std(after) * 3.0, 1.0)
+    drop       = safe_mean(before) - safe_mean(after)
+    stability  = 1.0 - min(safe_std(after) * 3.0, 1.0)
     drop_score = clamp01(0.65 + (drop * 1.2 if drop >= 0 else drop * 1.8))
     return clamp01(0.65 * drop_score + 0.35 * stability)
 
 
 def runway_score(candidate_time, song_duration, mix_duration, safety_seconds=4.0):
-    """
-    Strongly penalises candidates without enough audio remaining.
-    """
     remaining = song_duration - candidate_time
     required  = mix_duration + safety_seconds
-
-    if remaining >= required:       return 1.0
-    if remaining >= mix_duration:   return 0.75
-    if remaining >= mix_duration * 0.75: return 0.35
+    if remaining >= required:                return 1.0
+    if remaining >= mix_duration:            return 0.75
+    if remaining >= mix_duration * 0.75:     return 0.35
     return 0.0
 
 
 def outro_zone_score(candidate_time, duration):
-    """
-    Prefers the DJ outro zone (65–88% through the track).
-    Kept at a tiny weight — phrase_score already captures position alignment.
-    """
     if duration <= 0:
         return 0.5
     p = candidate_time / duration
@@ -83,55 +181,38 @@ def outro_zone_score(candidate_time, duration):
 
 
 def phrase_strength_score(candidate_time, beats, sr, phrase_beats=32):
-    """
-    Rewards candidates that land on a 32-beat (8-bar) phrase boundary.
-    A real DJ always starts the mix on a phrase, not a random beat.
-    """
     if beats is None or len(beats) == 0:
         return 0.4
-
     beat_times   = librosa.samples_to_time(beats, sr=sr)
     if len(beat_times) < phrase_beats + 1:
         return 0.45
-
     phrase_times = beat_times[::phrase_beats]
     nearest      = float(np.min(np.abs(phrase_times - candidate_time)))
     avg_beat     = float(np.median(np.diff(beat_times))) if len(beat_times) > 2 else 0.5
-    tolerance    = max(avg_beat * 1.5, 0.25)
-    return clamp01(1.0 - nearest / tolerance)
+    return clamp01(1.0 - nearest / max(avg_beat * 1.5, 0.25))
 
 
 def spectral_low_stability_score(y, sr, candidate_time, window_seconds=16):
-    """
-    Penalises transition points where low-end energy is unstable.
-    Unstable bass at the mix point causes muddy clashes.
-    """
     start = max(0, int((candidate_time - window_seconds) * sr))
     end   = min(len(y), int((candidate_time + window_seconds) * sr))
-
     if end <= start or (end - start) < sr:
         return 0.45
-
     S        = np.abs(librosa.stft(y[start:end], n_fft=2048, hop_length=512))
     freqs    = librosa.fft_frequencies(sr=sr, n_fft=2048)
     low_mask = freqs <= 180
-
     if not np.any(low_mask):
         return 0.45
-
     low_energy     = np.mean(S[low_mask, :], axis=0)
     normalized_std = np.std(low_energy) / (np.mean(low_energy) + 1e-8)
     return clamp01(1.0 - normalized_std)
 
 
-def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, duration_b):
+def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, duration_b,
+                        vocal_times_b=None, vocal_prob_b=None):
     """
-    FIX: This was weighted at 0.10 — far too low. Where Track B enters is
-    nearly as important as where Track A exits. A mid-drop entry on Track B
-    sounds wrong regardless of how perfect Track A's exit is. Now 0.20.
-
-    Prefers entry in the first 20% of the track (clean intro) with enough
-    energy to blend cleanly.
+    Scores Track B entry points.
+    Now also penalises entering on a vocal phrase — a DJ never drops Track B
+    at the start of its chorus.
     """
     if duration_b <= 0:
         return 0.5
@@ -146,7 +227,14 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
                               candidate_b_time, candidate_b_time + 16)
     energy_score = clamp01(0.6 + safe_mean(after) * 0.4) if len(after) >= 2 else 0.5
 
-    return clamp01(0.65 * position_score + 0.35 * energy_score)
+    # Vocal penalty: if Track B has vocals at the entry point, penalise
+    if vocal_times_b is not None and vocal_prob_b is not None:
+        vd      = vocal_density_at(vocal_times_b, vocal_prob_b, candidate_b_time, window_seconds=8.0)
+        v_score = vocal_free_score(vd)
+    else:
+        v_score = 1.0
+
+    return clamp01(0.50 * position_score + 0.25 * energy_score + 0.25 * v_score)
 
 
 # ---------------------------------------------------------------------------
@@ -156,25 +244,18 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
 def get_phrase_candidates(beats, sr, duration, phrase_beats=32,
                           min_percent=0.55, max_percent=0.92):
     phrase_times = get_phrase_boundaries(beats, sr, phrase_beats)
-    candidates   = [
-        float(t) for t in phrase_times
-        if duration * min_percent <= float(t) <= duration * max_percent
-    ]
+    candidates   = [float(t) for t in phrase_times
+                    if duration * min_percent <= float(t) <= duration * max_percent]
     if candidates:
         return candidates
     beat_times = librosa.samples_to_time(beats, sr=sr)
-    return [
-        float(t) for t in beat_times
-        if duration * min_percent <= float(t) <= duration * max_percent
-    ]
+    return [float(t) for t in beat_times
+            if duration * min_percent <= float(t) <= duration * max_percent]
 
 
 def track_b_intro_phrase_candidates(beats_b, sr, duration_b, phrase_beats=32):
     phrase_times     = get_phrase_boundaries(beats_b, sr, phrase_beats)
-    intro_candidates = [
-        float(t) for t in phrase_times
-        if 0 <= float(t) <= duration_b * 0.35
-    ]
+    intro_candidates = [float(t) for t in phrase_times if 0 <= float(t) <= duration_b * 0.35]
     if intro_candidates:
         return intro_candidates
     if phrase_times:
@@ -194,44 +275,53 @@ def score_transition_pair(
     energy_times_b, energy_values_b,
     duration_a, duration_b,
     mix_duration, harmonic_ok,
+    vocal_times_a=None, vocal_prob_a=None,
+    vocal_times_b=None, vocal_prob_b=None,
 ):
     """
-    FIX: Completely rebalanced weights.
-
-    Old:  phrase 0.20, outro 0.16, a_energy 0.16, runway 0.18,
-          low_stability 0.12, b_intro 0.10, harmonic 0.08
-    → harmonic was 0.08 — a DJ would never blend clashing keys with a long
-      EQ blend, but the old scorer would happily choose it.
-
-    New:  phrase 0.25, harmonic 0.20, b_intro 0.20, runway 0.15,
-          a_energy 0.12, low_stability 0.05, outro_zone 0.03
-    → outro_zone kept at 0.03 since phrase_score already rewards position.
-    → harmonic raised to 0.20 — it's a hard musical constraint.
-    → b_intro raised to 0.20 — entry point matters as much as exit point.
-    → harder penalty for non-harmonic pairs (0.40 vs 0.55).
+    Scoring weights:
+      phrase_score    0.22  — must start on a phrase boundary
+      harmonic_score  0.20  — key compatibility
+      b_intro         0.18  — Track B entry quality (includes vocal check)
+      vocal_free_a    0.15  — Track A exit should not be mid-vocal
+      runway          0.12  — must have enough audio left
+      a_energy        0.08  — smooth energy descent
+      low_stability   0.03  — bass stability tiebreaker
+      outro_zone      0.02  — position tiebreaker
+    Total = 1.00
     """
     phrase_score   = phrase_strength_score(candidate_a_time, beats_a, sr)
     harmonic_score = 1.0 if harmonic_ok else 0.40
-    b_intro        = track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, duration_b)
+    b_intro        = track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b,
+                                         duration_b, vocal_times_b, vocal_prob_b)
     runway         = runway_score(candidate_a_time, duration_a, mix_duration)
     a_energy       = local_energy_shape_score(candidate_a_time, energy_times_a, energy_values_a)
     low_stability  = spectral_low_stability_score(y_a, sr, candidate_a_time)
     outro_zone     = outro_zone_score(candidate_a_time, duration_a)
 
+    # Vocal penalty for Track A exit point
+    if vocal_times_a is not None and vocal_prob_a is not None:
+        vd_a       = vocal_density_at(vocal_times_a, vocal_prob_a, candidate_a_time)
+        vocal_a    = vocal_free_score(vd_a)
+    else:
+        vocal_a    = 1.0
+
     total = (
-        0.25 * phrase_score   +
+        0.22 * phrase_score   +
         0.20 * harmonic_score +
-        0.20 * b_intro        +
-        0.15 * runway         +
-        0.12 * a_energy       +
-        0.05 * low_stability  +
-        0.03 * outro_zone
+        0.18 * b_intro        +
+        0.15 * vocal_a        +
+        0.12 * runway         +
+        0.08 * a_energy       +
+        0.03 * low_stability  +
+        0.02 * outro_zone
     )
 
     return clamp01(total), {
         "phrase_score":     round(phrase_score, 3),
         "harmonic_score":   round(harmonic_score, 3),
         "b_intro_score":    round(b_intro, 3),
+        "vocal_free_a":     round(vocal_a, 3),
         "runway_score":     round(runway, 3),
         "a_energy_score":   round(a_energy, 3),
         "low_stability":    round(low_stability, 3),
@@ -249,12 +339,6 @@ def fine_sync_near_phrase(
     mix_samples, sr, bpm_a,
     search_window_beats=4, offset_samples=1200,
 ):
-    """
-    FIX: Hardcoded 124 BPM fallback replaced with actual bpm_a parameter.
-
-    Searches ±4 beats around the chosen phrase boundary for the beat that
-    produces the best grid alignment with Track A.
-    """
     track_a_beats = np.asarray(track_a_beats)
     track_b_beats = np.asarray(track_b_beats)
 
@@ -262,10 +346,8 @@ def fine_sync_near_phrase(
         return int(chosen_b_phrase_sample), 0.0
 
     beat_diffs            = np.diff(track_a_beats)
-    beat_duration_samples = (
-        int(np.median(beat_diffs)) if len(beat_diffs) > 0
-        else int((60.0 / bpm_a) * sr)
-    )
+    beat_duration_samples = (int(np.median(beat_diffs)) if len(beat_diffs) > 0
+                             else int((60.0 / bpm_a) * sr))
 
     search_radius     = search_window_beats * beat_duration_samples
     candidate_b_beats = track_b_beats[
@@ -276,7 +358,7 @@ def fine_sync_near_phrase(
     if len(candidate_b_beats) == 0:
         return int(chosen_b_phrase_sample), 0.5
 
-    a_window_beats = track_a_beats[
+    a_window = track_a_beats[
         (track_a_beats >= transition_start_sample)
         & (track_a_beats <= transition_start_sample + mix_samples)
     ]
@@ -285,241 +367,201 @@ def fine_sync_near_phrase(
     best_score   = -1.0
 
     for b_anchor in candidate_b_beats:
-        shifted        = track_b_beats - b_anchor + transition_start_sample
-        shifted_window = shifted[
-            (shifted >= transition_start_sample)
-            & (shifted <= transition_start_sample + mix_samples)
-        ]
-        if len(shifted_window) == 0:
+        shifted = track_b_beats - b_anchor + transition_start_sample
+        sw      = shifted[(shifted >= transition_start_sample)
+                          & (shifted <= transition_start_sample + mix_samples)]
+        if len(sw) == 0:
             continue
-
-        matches = sum(
-            1 for ba in a_window_beats
-            if np.any(np.abs(shifted_window - ba) <= offset_samples)
-        )
-        score = matches / max(min(len(a_window_beats), len(shifted_window)), 1)
-
+        matches = sum(1 for ba in a_window if np.any(np.abs(sw - ba) <= offset_samples))
+        score   = matches / max(min(len(a_window), len(sw)), 1)
         if score > best_score:
             best_score   = score
             best_b_start = int(b_anchor)
 
     return best_b_start, clamp01(best_score)
 
-# Aligns the beat grid of Track B with the transition point of Track A to ensure the tracks are 'in sync'.# Finds the best Track B entry beat inside the allowed intro window
+
 def find_best_sync_point(
-    track_a_beats,
-    track_b_beats,
-    transition_start_sample,
-    mix_samples,
+    track_a_beats, track_b_beats,
+    transition_start_sample, mix_samples,
     offset_samples=1200,
     track_b_total_samples=None,
     min_b_entry_percent=0.0,
-    max_b_entry_percent=0.35
+    max_b_entry_percent=0.35,
 ):
     track_a_beats = np.asarray(track_a_beats)
     track_b_beats = np.asarray(track_b_beats)
- 
-    a_window_beats = track_a_beats[
+
+    a_window = track_a_beats[
         (track_a_beats >= transition_start_sample)
         & (track_a_beats <= transition_start_sample + mix_samples)
     ]
- 
-    if len(a_window_beats) == 0 or len(track_b_beats) == 0:
+
+    if len(a_window) == 0 or len(track_b_beats) == 0:
         return 0, 0.0
- 
-    # FIX 2: derive a sensible window cap when total_samples not provided
+
     if track_b_total_samples is None:
-        track_b_total_samples = int(track_b_beats[-1] * 1.05)  # estimate from last beat
- 
-    min_b_sample = int(track_b_total_samples * min_b_entry_percent)
-    max_b_sample = int(track_b_total_samples * max_b_entry_percent)
- 
-    candidate_b_beats = track_b_beats[
-        (track_b_beats >= min_b_sample)
-        & (track_b_beats <= max_b_sample)
-    ]
- 
-    if len(candidate_b_beats) == 0:
-        candidate_b_beats = track_b_beats
- 
-    best_b_start = int(candidate_b_beats[0])
+        track_b_total_samples = int(track_b_beats[-1] * 1.05)
+
+    min_b = int(track_b_total_samples * min_b_entry_percent)
+    max_b = int(track_b_total_samples * max_b_entry_percent)
+    candidate_b = track_b_beats[(track_b_beats >= min_b) & (track_b_beats <= max_b)]
+
+    if len(candidate_b) == 0:
+        candidate_b = track_b_beats
+
+    best_b_start = int(candidate_b[0])
     best_score   = -1.0
- 
-    for b_anchor in candidate_b_beats:
-        shifted_b_beats = track_b_beats - b_anchor + transition_start_sample
- 
-        shifted_b_window = shifted_b_beats[
-            (shifted_b_beats >= transition_start_sample)
-            & (shifted_b_beats <= transition_start_sample + mix_samples)
-        ]
- 
-        if len(shifted_b_window) == 0:
+
+    for b_anchor in candidate_b:
+        shifted = track_b_beats - b_anchor + transition_start_sample
+        sw      = shifted[(shifted >= transition_start_sample)
+                          & (shifted <= transition_start_sample + mix_samples)]
+        if len(sw) == 0:
             continue
- 
-        matches = 0
-        for beat_a in a_window_beats:
-            if np.any(np.abs(shifted_b_window - beat_a) <= offset_samples):
-                matches += 1
- 
-        # FIX 3: normalise against the smaller of the two windows
-        denominator   = max(min(len(a_window_beats), len(shifted_b_window)), 1)
-        sync_accuracy = matches / denominator
- 
-        if sync_accuracy > best_score:
-            best_score   = sync_accuracy
+        matches = sum(1 for ba in a_window if np.any(np.abs(sw - ba) <= offset_samples))
+        score   = matches / max(min(len(a_window), len(sw)), 1)
+        if score > best_score:
+            best_score   = score
             best_b_start = int(b_anchor)
- 
+
     return best_b_start, float(best_score)
+
 
 # ---------------------------------------------------------------------------
 # Main planner
 # ---------------------------------------------------------------------------
 
-def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
+def plan_transition_logic(
+    track_a_path, track_b_path, preferred_mix_duration,
+    library_path="storage/library_metadata.json",
+):
     if not os.path.exists(track_a_path):
         raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
     if not os.path.exists(track_b_path):
         raise HTTPException(status_code=400, detail=f"Track B not found: {track_b_path}")
 
-    print("\n--- Starting Improved Transition Planner ---")
+    print("\n--- Starting Transition Planner ---")
 
-    y_a, _ = librosa.load(track_a_path, sr=TARGET_SR, mono=True)
-    y_b, _ = librosa.load(track_b_path, sr=TARGET_SR, mono=True)
+    # Load both tracks — reuses library metadata if available
+    track_a = load_or_analyze_track(track_a_path, library_path)
+    track_b = load_or_analyze_track(track_b_path, library_path)
 
-    duration_a = librosa.get_duration(y=y_a, sr=TARGET_SR)
-    duration_b = librosa.get_duration(y=y_b, sr=TARGET_SR)
-
-    bpm_a, beats_a = safe_bpm(y_a, TARGET_SR)
-    bpm_b, beats_b = safe_bpm(y_b, TARGET_SR)
-
-    key_a, mode_a, key_conf_a = estimate_key(y_a, TARGET_SR)
-    key_b, mode_b, key_conf_b = estimate_key(y_b, TARGET_SR)
-
-    camelot_a   = CAMELOT_MAP.get((key_a, mode_a))
-    camelot_b   = CAMELOT_MAP.get((key_b, mode_b))
+    y_a, duration_a = track_a["y"], track_a["duration"]
+    y_b, duration_b = track_b["y"], track_b["duration"]
+    bpm_a, bpm_b    = track_a["bpm"], track_b["bpm"]
+    beats_a, beats_b = track_a["beats"], track_b["beats"]
+    downbeats_a, downbeats_b = track_a["downbeats"], track_b["downbeats"]
+    camelot_a, camelot_b     = track_a["camelot"], track_b["camelot"]
+    key_conf_a, key_conf_b   = track_a["key_confidence"], track_b["key_confidence"]
     harmonic_ok = camelot_compatible(camelot_a, camelot_b)
 
-    energy_times_a, energy_values_a = get_energy_curve(y_a, TARGET_SR)
-    energy_times_b, energy_values_b = get_energy_curve(y_b, TARGET_SR)
+    energy_times_a, energy_values_a = track_a["energy_times"], track_a["energy_values"]
+    energy_times_b, energy_values_b = track_b["energy_times"], track_b["energy_values"]
 
-    # FIX: default to 2 phrases so runway scoring uses a realistic duration.
-    # 1 phrase at 128 BPM = ~15s — too short for most blending strategies.
+    # --- Vocal detection ---
+    print("Detecting vocal regions...")
+    try:
+        vocal_times_a, vocal_prob_a, _ = detect_vocal_regions(y_a, TARGET_SR)
+        vocal_times_b, vocal_prob_b, _ = detect_vocal_regions(y_b, TARGET_SR)
+    except Exception as e:
+        print(f"Vocal detection failed ({e}) — skipping.")
+        vocal_times_a = vocal_prob_a = None
+        vocal_times_b = vocal_prob_b = None
+
     planning_mix_duration = preferred_mix_duration or round((60.0 / bpm_a) * 32 * 2, 1)
 
-    candidates_a = get_phrase_candidates(
-        beats=beats_a, sr=TARGET_SR, duration=duration_a,
-        phrase_beats=32, min_percent=0.55, max_percent=0.92,
+    # --- Candidate generation ---
+    candidates_a = phrase_boundary_candidates_from_downbeats(
+        downbeats=downbeats_a, sr=TARGET_SR, song_duration=duration_a,
+        phrase_bars=8, min_percent=0.55, max_percent=0.92,
     )
     if not candidates_a:
-        raise HTTPException(status_code=400, detail="Could not find Track A transition candidates.")
+        candidates_a = get_phrase_candidates(beats_a, TARGET_SR, duration_a)
+    if not candidates_a:
+        raise HTTPException(status_code=400, detail="No Track A transition candidates found.")
 
-    candidates_b = track_b_intro_phrase_candidates(
-        beats_b=beats_b, sr=TARGET_SR, duration_b=duration_b, phrase_beats=32,
+    candidates_b = intro_phrase_candidates_from_downbeats(
+        downbeats=downbeats_b, sr=TARGET_SR, song_duration=duration_b,
+        phrase_bars=8, max_percent=0.35,
     )
     if not candidates_b:
-        raise HTTPException(status_code=400, detail="Could not find Track B entry candidates.")
+        candidates_b = track_b_intro_phrase_candidates(beats_b, TARGET_SR, duration_b)
+    if not candidates_b:
+        raise HTTPException(status_code=400, detail="No Track B entry candidates found.")
 
     # --- Score all A/B pairs ---
-    scored_candidates = []
-    best_score        = -1.0
-    best_time         = candidates_a[0]
-    best_b_time       = candidates_b[0]
-    best_score_parts  = {}
+    scored     = []
+    best_score = -1.0
+    best_time  = candidates_a[0]
+    best_b_time = candidates_b[0]
+    best_parts  = {}
 
     for ca in candidates_a:
         for cb in candidates_b:
             score, parts = score_transition_pair(
-                candidate_a_time=ca,
-                candidate_b_time=cb,
-                y_a=y_a,
-                beats_a=beats_a,
-                sr=TARGET_SR,
-                energy_times_a=energy_times_a,
-                energy_values_a=energy_values_a,
-                energy_times_b=energy_times_b,
-                energy_values_b=energy_values_b,
-                duration_a=duration_a,
-                duration_b=duration_b,
-                mix_duration=planning_mix_duration,
-                harmonic_ok=harmonic_ok,
+                candidate_a_time=ca, candidate_b_time=cb,
+                y_a=y_a, beats_a=beats_a, sr=TARGET_SR,
+                energy_times_a=energy_times_a, energy_values_a=energy_values_a,
+                energy_times_b=energy_times_b, energy_values_b=energy_values_b,
+                duration_a=duration_a, duration_b=duration_b,
+                mix_duration=planning_mix_duration, harmonic_ok=harmonic_ok,
+                vocal_times_a=vocal_times_a, vocal_prob_a=vocal_prob_a,
+                vocal_times_b=vocal_times_b, vocal_prob_b=vocal_prob_b,
             )
-            scored_candidates.append({
-                "track_a_time": round(float(ca), 3),
-                "track_b_time": round(float(cb), 3),
-                "score":        round(float(score), 3),
-                **parts,
-            })
+            scored.append({"track_a_time": round(ca, 3), "track_b_time": round(cb, 3),
+                           "score": round(score, 3), **parts})
             if score > best_score:
-                best_score       = score
-                best_time        = ca
-                best_b_time      = cb
-                best_score_parts = parts
+                best_score = score
+                best_time  = ca
+                best_b_time = cb
+                best_parts  = parts
 
     # --- Strategy selection ---
-    # FIX: sync_accuracy was hardcoded to 0.5, incorrectly disqualifying
-    # strategies like bass_swap (min_sync 0.6) and drop_mix (min_sync 0.65).
-    # Pass 1.0 here — the planner doesn't have real sync accuracy yet.
-    # Actual alignment is validated in the renderer after stretching.
     strategy, strategy_scores = choose_strategy_with_scores(
-        harmonic_ok=harmonic_ok,
-        bpm_a=bpm_a,
-        bpm_b=bpm_b,
-        best_time=best_time,
-        song_duration_a=duration_a,
+        harmonic_ok=harmonic_ok, bpm_a=bpm_a, bpm_b=bpm_b,
+        best_time=best_time, song_duration_a=duration_a,
         mix_duration=planning_mix_duration,
-        energy_score=best_score_parts.get("a_energy_score", 0.5),
-        runway_score_value=best_score_parts.get("runway_score", 1.0),
+        energy_score=best_parts.get("a_energy_score", 0.5),
+        runway_score_value=best_parts.get("runway_score", 1.0),
         sync_accuracy=1.0,
-        key_confidence_a=key_conf_a,
-        key_confidence_b=key_conf_b,
+        key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
     )
 
     mix_duration = preferred_mix_duration if preferred_mix_duration is not None \
         else get_strategy_mix_duration(strategy, bpm_a)
 
-    # --- Re-check runway with final mix_duration ---
-    # FIX: Old code re-sorted entirely by runway filter, overriding the
-    # winning candidate with a lower-scoring one. Now only replaces the
-    # winner if it genuinely fails the runway check AND a valid alternative
-    # exists — preserving the full score ranking otherwise.
-    winner_runway = runway_score(best_time, duration_a, mix_duration)
-
-    if winner_runway < 0.75:
-        valid_alternatives = [
-            row for row in scored_candidates
-            if row["track_a_time"] != best_time
-            and runway_score(row["track_a_time"], duration_a, mix_duration) >= 0.75
+    # --- Runway re-check ---
+    if runway_score(best_time, duration_a, mix_duration) < 0.75:
+        alternatives = [
+            r for r in scored
+            if r["track_a_time"] != best_time
+            and runway_score(r["track_a_time"], duration_a, mix_duration) >= 0.75
         ]
-        if valid_alternatives:
-            best_row   = max(valid_alternatives, key=lambda x: x["score"])
-            best_time  = best_row["track_a_time"]
+        if alternatives:
+            best_row    = max(alternatives, key=lambda x: x["score"])
+            best_time   = best_row["track_a_time"]
             best_b_time = best_row["track_b_time"]
-            print(f"Runway re-check: transition moved to {best_time:.2f}s")
+            print(f"Runway re-check: moved to {best_time:.2f}s")
 
-    # --- Fine beat-grid sync ---
-    mix_samples          = int(mix_duration * TARGET_SR)
-    best_start_sample    = int(best_time * TARGET_SR)
-    chosen_b_phrase_smpl = int(best_b_time * TARGET_SR)
+    # --- Fine beat sync ---
+    mix_samples = int(mix_duration * TARGET_SR)
 
     start_sample_b, sync_accuracy = fine_sync_near_phrase(
-        track_a_beats=beats_a,
-        track_b_beats=beats_b,
-        transition_start_sample=best_start_sample,
-        chosen_b_phrase_sample=chosen_b_phrase_smpl,
-        mix_samples=mix_samples,
-        sr=TARGET_SR,
-        bpm_a=bpm_a,
-        search_window_beats=4,
-        offset_samples=1200,
+        track_a_beats=beats_a, track_b_beats=beats_b,
+        transition_start_sample=int(best_time * TARGET_SR),
+        chosen_b_phrase_sample=int(best_b_time * TARGET_SR),
+        mix_samples=mix_samples, sr=TARGET_SR, bpm_a=bpm_a,
+        search_window_beats=4, offset_samples=1200,
     )
 
     track_b_entry_time = start_sample_b / TARGET_SR
 
     reason = (
-        f"Selected {strategy}. Track A {camelot_a}, Track B {camelot_b}, "
+        f"Selected {strategy}. A={camelot_a}, B={camelot_b}, "
         f"harmonic={harmonic_ok}, BPM delta={abs(bpm_a - bpm_b):.2f}. "
         f"Transition at {best_time:.2f}s (score={best_score:.3f}), "
-        f"Track B entry at {track_b_entry_time:.2f}s, sync={sync_accuracy:.3f}."
+        f"B entry at {track_b_entry_time:.2f}s, sync={sync_accuracy:.3f}."
     )
     print(reason)
 
@@ -536,21 +578,23 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
         "track_a": {
             "duration":       round(float(duration_a), 2),
             "bpm":            round(float(bpm_a), 2),
-            "key":            f"{key_a} {mode_a}",
+            "key":            f"{track_a['key']} {track_a['mode']}",
             "camelot":        camelot_a,
             "key_confidence": round(float(key_conf_a), 3),
+            "beats":          [round(float(t), 3) for t in librosa.samples_to_time(beats_a, sr=TARGET_SR)],
+            "downbeats":      [round(float(t), 3) for t in librosa.samples_to_time(downbeats_a, sr=TARGET_SR)],
         },
         "track_b": {
             "duration":       round(float(duration_b), 2),
             "bpm":            round(float(bpm_b), 2),
-            "key":            f"{key_b} {mode_b}",
+            "key":            f"{track_b['key']} {track_b['mode']}",
             "camelot":        camelot_b,
             "key_confidence": round(float(key_conf_b), 3),
+            "beats":          [round(float(t), 3) for t in librosa.samples_to_time(beats_b, sr=TARGET_SR)],
+            "downbeats":      [round(float(t), 3) for t in librosa.samples_to_time(downbeats_b, sr=TARGET_SR)],
         },
         "harmonic_compatible": harmonic_ok,
-        "top_phrase_pairs": sorted(
-            scored_candidates, key=lambda x: x["score"], reverse=True
-        )[:8],
+        "top_phrase_pairs": sorted(scored, key=lambda x: x["score"], reverse=True)[:8],
         "render_payload": {
             "track_a_path":          track_a_path,
             "track_b_path":          track_b_path,
@@ -559,6 +603,11 @@ def plan_transition_logic(track_a_path, track_b_path, preferred_mix_duration):
             "mix_duration":          mix_duration,
             "output_dir":            "outputs",
             "transition_strategy":   strategy,
+            # Pass beat grids forward so renderer doesn't re-analyse
+            "_beats_a":              beats_a.tolist(),
+            "_beats_b":              beats_b.tolist(),
+            "_bpm_a":                round(float(bpm_a), 3),
+            "_bpm_b":                round(float(bpm_b), 3),
             "fx_parameters": {
                 "apply_reverb_tail":  strategy == "reverb_wash",
                 "loop_track_a":       strategy == "auto_loop",

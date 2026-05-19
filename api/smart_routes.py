@@ -6,7 +6,6 @@ from core.smart_router import smart_route_transition
 
 router = APIRouter(prefix="/smart", tags=["Smart Router"])
 
-
 @router.post("/route-transition")
 async def route_transition(req: SmartRouteRequest):
     return smart_route_transition(

@@ -380,35 +380,68 @@ with tab_smart_stream:
     result = st.session_state.get("smart_stream_result")
 
     if result:
-            st.subheader("Set Timeline")
-            
-            transitions = result.get("transitions", [])
-            timeline = result.get("timeline", [])
+        st.subheader("Set Timeline")
 
-            if timeline:
-                clean_timeline = []
-                for i, entry in enumerate(timeline):
-                    # The first track doesn't have a 'previous' transition
-                    strategy_used = "N/A (Starting Track)"
-                    if i > 0 and (i - 1) < len(transitions):
-                        render_data = transitions[i-1].get("render", {})
-                        strategy_used = render_data.get("transition_strategy", "Unknown")
+        timeline = result.get("timeline", [])
+        transitions = result.get("transitions", [])
+
+        st.write("DEBUG result keys:", list(result.keys()))
+        st.write("DEBUG timeline length:", len(timeline))
+        st.write("DEBUG transitions length:", len(transitions))
+
+        if timeline:
+            clean_timeline = []
+
+            for entry in timeline:
+                row_type = entry.get("type")
+
+                if row_type == "transition":
+                    from_track = entry.get("from_track", {})
+                    to_track = entry.get("to_track", {})
 
                     clean_timeline.append({
-                        "Start Time": entry.get("start_in_set"),
-                        "Track Name": entry.get("filename"),
-                        "Transition Used": strategy_used,
-
+                        "Type": "Transition",
+                        "Start": entry.get("set_start"),
+                        "End": entry.get("set_end"),
+                        "Name": f"{from_track.get('filename')} → {to_track.get('filename')}",
+                        "Strategy": entry.get("strategy"),
+                        "Planner Strategy": entry.get("planner_strategy"),
+                        "Mix Duration": entry.get("mix_duration"),
+                        "Stretch Rate": entry.get("stretch_rate"),
+                        "A Time": entry.get("track_a_original_transition_time"),
+                        "B Entry": entry.get("track_b_original_entry_time"),
+                        "Drift ms": entry.get("render", {}).get("beat_alignment_drift_ms"),
                     })
 
-                st.dataframe(clean_timeline, use_container_width=True)
-                
-                # Final Audio Preview
-                final_mix = result.get("final_mix")
-                if final_mix:
-                    output_path = final_mix.get("output_path")
-                    if output_path and os.path.exists(output_path):
-                        st.audio(output_path)
-                        st.success(f"Full set ready: {output_path}")
-            else:
-                st.info("No timeline data available. Please render a set first.")
+                else:
+                    clean_timeline.append({
+                        "Type": "Track",
+                        "Start": entry.get("set_start"),
+                        "End": entry.get("set_end"),
+                        "Name": entry.get("filename"),
+                        "Strategy": "-",
+                        "Planner Strategy": "-",
+                        "Mix Duration": "-",
+                        "Stretch Rate": "-",
+                        "A Time": entry.get("source_original_start"),
+                        "B Entry": "-",
+                        "Drift ms": "-",
+                    })
+
+            st.dataframe(clean_timeline, use_container_width=True)
+
+        else:
+            st.warning("No timeline data found in smart_stream_result.")
+            st.json(result)
+
+        output_path = (
+            result.get("final_mix", {}).get("output_path")
+            or result.get("output_path")
+            or result.get("final_mix", {}).get("path")
+        )
+
+        if output_path and os.path.exists(output_path):
+            st.audio(output_path)
+            st.success(f"Full set ready: {output_path}")
+        else:
+            st.warning(f"Audio output not found: {output_path}")

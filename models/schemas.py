@@ -36,7 +36,6 @@ class FXParameters(BaseModel):
     lpf_sweep_end_freq:  Optional[float] = None   # FIX: was missing
     bpm:                 Optional[float] = None   # FIX: was missing — needed by tempo-synced transitions
 
-
 class AutoRenderRequest(BaseModel):
     track_a_path: str
     track_b_path: str
@@ -145,6 +144,8 @@ class AssemblePlaybackRequest(BaseModel):
     setlist_path: str = "storage/setlist_state.json"
     library_path: str = "storage/library_metadata.json"
     output_path: str = "rendered_clips/final_playback_mix.wav"
+    queue_path: str
+    preferred_mix_duration: Optional[float] = None
 
 class SmartSetBuildRequest(BaseModel):
     library_path: str = "storage/library_metadata.json"

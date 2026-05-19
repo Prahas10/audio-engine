@@ -157,7 +157,16 @@ def tempo_synced_echo(y, sr, bpm, beats=1, feedback=0.45, wet=0.5):
             break
     return (y * (1.0 - wet)) + (buf[:len(y)] * wet)
 
+def vocal_band_duck(y, sr, duck_amount=0.45):
+    """
+    Ducks vocal/mid band around 300–3400 Hz.
+    Used to prevent vocal-vocal clashes during transitions.
+    """
+    low = apply_filter(y, sr, 300.0, "low", order=3)
+    high = apply_filter(y, sr, 3400.0, "high", order=3)
+    mid = y - low - high
 
+    return low + (mid * duck_amount) + high
 # ---------------------------------------------------------------------------
 # Filter sweeps (STFT-domain — no stepping artefacts)
 # ---------------------------------------------------------------------------
@@ -597,3 +606,31 @@ def techno_filter_drive_transition(segment_a, segment_b, sr):
 
     mixed = filtered_a * fout * 0.82 + b_high * fin * 0.92 + b_low * b_bass_g * 0.90
     return _finalize(mixed)
+
+def vocal_safe_blend_transition(segment_a, segment_b, sr):
+    """
+    DJ-safe vocal-aware blend.
+    Ducks Track A vocal/mid band while letting Track B take focus.
+    Avoids two full vocal bands overlapping.
+    """
+    n = len(segment_a)
+
+    a_ducked = vocal_band_duck(segment_a, sr, duck_amount=0.35)
+
+    a_low, a_mid, a_high = split_bands(a_ducked, sr)
+    b_low, b_mid, b_high = split_bands(segment_b, sr)
+
+    a_out = 1.0 - sigmoid(n, center=0.42, steepness=10.0)
+    b_in = sigmoid(n, center=0.50, steepness=10.0)
+
+    a_bass_g = 1.0 - sigmoid(n, center=0.52, steepness=16.0)
+    b_bass_g = sigmoid(n, center=0.66, steepness=16.0)
+
+    mixed = (
+        a_low * a_bass_g +
+        b_low * b_bass_g +
+        (a_mid + a_high) * a_out * 0.72 +
+        (b_mid + b_high) * b_in
+    )
+
+    return _finalize(mixed * 0.92)

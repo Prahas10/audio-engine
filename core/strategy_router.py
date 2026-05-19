@@ -307,3 +307,6 @@ def apply_transition_strategy(segment_a, segment_b, sr, transition_strategy, fx_
             detail=f"Unsupported transition_strategy: {transition_strategy}",
         )
     return handler(segment_a, segment_b, sr, fx_parameters)
+ 
+
+
