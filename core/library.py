@@ -1,3 +1,14 @@
+"""
+core/library.py
+Track metadata persistence and folder scanning.
+
+Changes vs original:
+  - scan_track_metadata: passes bpm to phrase/intro candidate helpers so
+    phrase_bars is BPM-derived instead of fixed at 8.
+  - Stores raw_rms_db in energy_summary for cross-track loudness scoring.
+  - get_energy_curve call unpacked for three return values.
+"""
+
 import os
 import json
 import uuid
@@ -28,20 +39,16 @@ def make_track_id(track_path):
 def load_library_metadata(library_path):
     if not os.path.exists(library_path):
         return {}
-
     with open(library_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_library_metadata(library_path, track_metadata):
     os.makedirs(os.path.dirname(library_path), exist_ok=True)
-
     library = load_library_metadata(library_path)
     library[track_metadata["track_id"]] = track_metadata
-
     with open(library_path, "w", encoding="utf-8") as f:
         json.dump(library, f, indent=2)
-
     return library
 
 
@@ -50,9 +57,7 @@ def scan_track_metadata(track_path):
         raise HTTPException(status_code=400, detail=f"Track not found: {track_path}")
 
     abs_path = os.path.abspath(track_path)
-
     y, _ = librosa.load(abs_path, sr=TARGET_SR, mono=True)
-
     duration = librosa.get_duration(y=y, sr=TARGET_SR)
 
     bpm, beats, downbeats = safe_bpm_from_path(abs_path, TARGET_SR)
@@ -60,13 +65,15 @@ def scan_track_metadata(track_path):
     key, mode, key_confidence = estimate_key(y, TARGET_SR)
     camelot = CAMELOT_MAP.get((key, mode))
 
-    energy_times, energy_values = get_energy_curve(y, TARGET_SR)
+    # get_energy_curve now returns three values
+    energy_times, energy_values, raw_rms_db = get_energy_curve(y, TARGET_SR)
 
+    # Pass bpm so phrase grouping is BPM-aware
     phrase_points = phrase_boundary_candidates_from_downbeats(
         downbeats=downbeats,
         sr=TARGET_SR,
         song_duration=duration,
-        phrase_bars=8,
+        bpm=bpm,
         min_percent=0.55,
         max_percent=0.92,
     )
@@ -75,7 +82,7 @@ def scan_track_metadata(track_path):
         downbeats=downbeats,
         sr=TARGET_SR,
         song_duration=duration,
-        phrase_bars=8,
+        bpm=bpm,
         max_percent=0.35,
     )
 
@@ -123,9 +130,10 @@ def scan_track_metadata(track_path):
             "max": round(float(np.max(energy_values)), 3),
             "min": round(float(np.min(energy_values)), 3),
             "std": round(float(np.std(energy_values)), 3),
+            "raw_rms_db": round(float(raw_rms_db), 2),
         },
 
-        "analysis_version": "madmom_v2",
+        "analysis_version": "madmom_v3",
     }
 
 
@@ -173,7 +181,6 @@ def scan_folder_metadata(folder_path, library_path, force_rescan=False, clear_ex
                     "reason": "already_scanned_same_file_version",
                 })
                 continue
-
             old_metadata = existing_paths.get(track_path)
             if old_metadata:
                 skipped_tracks.append({
@@ -184,17 +191,10 @@ def scan_folder_metadata(folder_path, library_path, force_rescan=False, clear_ex
                 continue
 
         try:
-            metadata = scan_and_save_track(
-                track_path=track_path,
-                library_path=library_path,
-            )
+            metadata = scan_and_save_track(track_path=track_path, library_path=library_path)
             scanned_tracks.append(metadata)
-
         except Exception as e:
-            failed_tracks.append({
-                "path": track_path,
-                "error": str(e),
-            })
+            failed_tracks.append({"path": track_path, "error": str(e)})
 
     return {
         "status": "success",
@@ -211,7 +211,6 @@ def scan_folder_metadata(folder_path, library_path, force_rescan=False, clear_ex
 
 def list_library_tracks(library_path):
     library = load_library_metadata(library_path)
-
     return {
         "status": "success",
         "library_path": os.path.abspath(library_path),
@@ -223,14 +222,10 @@ def list_library_tracks(library_path):
 def get_track_metadata(track_path, library_path):
     library = load_library_metadata(library_path)
     abs_path = os.path.abspath(track_path)
-
     track_id = make_track_id(abs_path)
-
     if track_id in library:
         return library[track_id]
-
     for metadata in library.values():
         if metadata.get("path") == abs_path:
             return metadata
-
     return None

@@ -401,31 +401,14 @@ with tab_smart_stream:
 
                     clean_timeline.append({
                         "Type": "Transition",
-                        "Start": entry.get("set_start"),
-                        "End": entry.get("set_end"),
-                        "Name": f"{from_track.get('filename')} → {to_track.get('filename')}",
-                        "Strategy": entry.get("strategy"),
+                        "Start": format_mmss(entry.get("set_start")),
+                        "Name": f"{from_track.get('filename')}",
                         "Planner Strategy": entry.get("planner_strategy"),
                         "Mix Duration": entry.get("mix_duration"),
                         "Stretch Rate": entry.get("stretch_rate"),
                         "A Time": entry.get("track_a_original_transition_time"),
                         "B Entry": entry.get("track_b_original_entry_time"),
                         "Drift ms": entry.get("render", {}).get("beat_alignment_drift_ms"),
-                    })
-
-                else:
-                    clean_timeline.append({
-                        "Type": "Track",
-                        "Start": entry.get("set_start"),
-                        "End": entry.get("set_end"),
-                        "Name": entry.get("filename"),
-                        "Strategy": "-",
-                        "Planner Strategy": "-",
-                        "Mix Duration": "-",
-                        "Stretch Rate": "-",
-                        "A Time": entry.get("source_original_start"),
-                        "B Entry": "-",
-                        "Drift ms": "-",
                     })
 
             st.dataframe(clean_timeline, use_container_width=True)

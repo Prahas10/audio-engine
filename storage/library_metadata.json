@@ -9,11 +9,11 @@
     "duration": 460.8,
     "sample_rate": 44100,
     "bpm": 125.0,
-    "key": "A major",
+    "key": "A minor",
     "key_name": "A",
-    "mode": "major",
-    "camelot": "11B",
-    "key_confidence": 0.075,
+    "mode": "minor",
+    "camelot": "8A",
+    "key_confidence": 0.017,
     "beat_count": 960,
     "downbeat_count": 240,
     "beats": [
@@ -1260,9 +1260,10 @@
       "avg": 0.447,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.218
+      "std": 0.218,
+      "raw_rms_db": -10.61
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "5237a3e4-b15b-58f7-ba44-8e95e5e8093a": {
     "track_id": "5237a3e4-b15b-58f7-ba44-8e95e5e8093a",
@@ -1278,7 +1279,7 @@
     "key_name": "F#",
     "mode": "minor",
     "camelot": "11A",
-    "key_confidence": 0.133,
+    "key_confidence": 0.045,
     "beat_count": 1357,
     "downbeat_count": 338,
     "beats": [
@@ -3028,9 +3029,10 @@
       "avg": 0.205,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.201
+      "std": 0.201,
+      "raw_rms_db": -13.64
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "3cbe08e3-cd04-5332-8da5-9e5fd59d9b3a": {
     "track_id": "3cbe08e3-cd04-5332-8da5-9e5fd59d9b3a",
@@ -3046,7 +3048,7 @@
     "key_name": "D#",
     "mode": "major",
     "camelot": "5B",
-    "key_confidence": 0.115,
+    "key_confidence": 0.166,
     "beat_count": 836,
     "downbeat_count": 208,
     "beats": [
@@ -4135,9 +4137,10 @@
       "avg": 0.388,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.209
+      "std": 0.209,
+      "raw_rms_db": -13.02
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "70f665cf-eb51-5512-953d-4c004f4514ce": {
     "track_id": "70f665cf-eb51-5512-953d-4c004f4514ce",
@@ -4149,11 +4152,11 @@
     "duration": 380.905,
     "sample_rate": 44100,
     "bpm": 127.66,
-    "key": "E minor",
+    "key": "E major",
     "key_name": "E",
-    "mode": "minor",
-    "camelot": "9A",
-    "key_confidence": 0.018,
+    "mode": "major",
+    "camelot": "12B",
+    "key_confidence": 0.046,
     "beat_count": 924,
     "downbeat_count": 192,
     "beats": [
@@ -5312,9 +5315,10 @@
       "avg": 0.37,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.208
+      "std": 0.208,
+      "raw_rms_db": -10.85
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "8fe53683-8ce9-5ca5-b3a3-cc60ecec4bed": {
     "track_id": "8fe53683-8ce9-5ca5-b3a3-cc60ecec4bed",
@@ -5330,7 +5334,7 @@
     "key_name": "C#",
     "mode": "major",
     "camelot": "3B",
-    "key_confidence": 0.274,
+    "key_confidence": 0.378,
     "beat_count": 904,
     "downbeat_count": 225,
     "beats": [
@@ -6504,9 +6508,10 @@
       "avg": 0.375,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.217
+      "std": 0.217,
+      "raw_rms_db": -10.19
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "dbb5ef81-b9da-50ab-a1b2-0ffe4e37556c": {
     "track_id": "dbb5ef81-b9da-50ab-a1b2-0ffe4e37556c",
@@ -6522,7 +6527,7 @@
     "key_name": "C",
     "mode": "minor",
     "camelot": "5A",
-    "key_confidence": 0.105,
+    "key_confidence": 0.012,
     "beat_count": 700,
     "downbeat_count": 171,
     "beats": [
@@ -7434,9 +7439,10 @@
       "avg": 0.391,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.203
+      "std": 0.203,
+      "raw_rms_db": -11.23
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "a12763ab-6760-54a8-9631-c76937b4cd4b": {
     "track_id": "a12763ab-6760-54a8-9631-c76937b4cd4b",
@@ -7452,7 +7458,7 @@
     "key_name": "A",
     "mode": "minor",
     "camelot": "8A",
-    "key_confidence": 0.282,
+    "key_confidence": 0.154,
     "beat_count": 587,
     "downbeat_count": 146,
     "beats": [
@@ -8223,9 +8229,10 @@
       "avg": 0.32,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.207
+      "std": 0.207,
+      "raw_rms_db": -10.89
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "f55e829c-52d1-5117-aff2-15819b794ede": {
     "track_id": "f55e829c-52d1-5117-aff2-15819b794ede",
@@ -8241,7 +8248,7 @@
     "key_name": "D",
     "mode": "major",
     "camelot": "10B",
-    "key_confidence": 0.268,
+    "key_confidence": 0.019,
     "beat_count": 650,
     "downbeat_count": 162,
     "beats": [
@@ -9091,9 +9098,10 @@
       "avg": 0.315,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.243
+      "std": 0.243,
+      "raw_rms_db": -13.34
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "0095583c-eb8f-52eb-97b4-25b1274ec5ac": {
     "track_id": "0095583c-eb8f-52eb-97b4-25b1274ec5ac",
@@ -9109,7 +9117,7 @@
     "key_name": "G",
     "mode": "minor",
     "camelot": "6A",
-    "key_confidence": 0.043,
+    "key_confidence": 0.034,
     "beat_count": 823,
     "downbeat_count": 203,
     "beats": [
@@ -10178,9 +10186,10 @@
       "avg": 0.28,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.24
+      "std": 0.24,
+      "raw_rms_db": -12.73
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "a97d4860-5057-5768-8094-b5407bd21ad8": {
     "track_id": "a97d4860-5057-5768-8094-b5407bd21ad8",
@@ -10196,7 +10205,7 @@
     "key_name": "D",
     "mode": "major",
     "camelot": "10B",
-    "key_confidence": 0.359,
+    "key_confidence": 0.145,
     "beat_count": 656,
     "downbeat_count": 165,
     "beats": [
@@ -11058,9 +11067,10 @@
       "avg": 0.343,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.223
+      "std": 0.223,
+      "raw_rms_db": -12.57
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "5971fda5-1f9d-5545-918f-de10ca20a0c9": {
     "track_id": "5971fda5-1f9d-5545-918f-de10ca20a0c9",
@@ -11072,11 +11082,11 @@
     "duration": 368.149,
     "sample_rate": 44100,
     "bpm": 120.0,
-    "key": "D minor",
-    "key_name": "D",
+    "key": "A minor",
+    "key_name": "A",
     "mode": "minor",
-    "camelot": "7A",
-    "key_confidence": 0.1,
+    "camelot": "8A",
+    "key_confidence": 0.091,
     "beat_count": 739,
     "downbeat_count": 183,
     "beats": [
@@ -12041,9 +12051,10 @@
       "avg": 0.255,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.195
+      "std": 0.195,
+      "raw_rms_db": -13.66
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "d6f493f0-48a6-5ff9-9e0e-36201a5ff162": {
     "track_id": "d6f493f0-48a6-5ff9-9e0e-36201a5ff162",
@@ -12055,11 +12066,11 @@
     "duration": 322.508,
     "sample_rate": 44100,
     "bpm": 127.66,
-    "key": "D minor",
-    "key_name": "D",
+    "key": "E minor",
+    "key_name": "E",
     "mode": "minor",
-    "camelot": "7A",
-    "key_confidence": 0.017,
+    "camelot": "9A",
+    "key_confidence": 0.011,
     "beat_count": 688,
     "downbeat_count": 168,
     "beats": [
@@ -12956,9 +12967,10 @@
       "avg": 0.536,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.245
+      "std": 0.245,
+      "raw_rms_db": -9.34
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "5af53c0d-39fa-571d-881e-f48cf26e29bc": {
     "track_id": "5af53c0d-39fa-571d-881e-f48cf26e29bc",
@@ -12974,7 +12986,7 @@
     "key_name": "E",
     "mode": "minor",
     "camelot": "9A",
-    "key_confidence": 0.016,
+    "key_confidence": 0.015,
     "beat_count": 702,
     "downbeat_count": 174,
     "beats": [
@@ -13891,9 +13903,10 @@
       "avg": 0.486,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.243
+      "std": 0.243,
+      "raw_rms_db": -15.19
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "0dadd03f-a332-55cf-bc70-4c6a2419033d": {
     "track_id": "0dadd03f-a332-55cf-bc70-4c6a2419033d",
@@ -13909,7 +13922,7 @@
     "key_name": "G",
     "mode": "minor",
     "camelot": "6A",
-    "key_confidence": 0.008,
+    "key_confidence": 0.001,
     "beat_count": 684,
     "downbeat_count": 169,
     "beats": [
@@ -14803,9 +14816,10 @@
       "avg": 0.499,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.194
+      "std": 0.194,
+      "raw_rms_db": -16.64
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "227c4131-f71e-55cd-b946-cd7da4cc0ea2": {
     "track_id": "227c4131-f71e-55cd-b946-cd7da4cc0ea2",
@@ -14821,7 +14835,7 @@
     "key_name": "C",
     "mode": "major",
     "camelot": "8B",
-    "key_confidence": 0.287,
+    "key_confidence": 0.151,
     "beat_count": 711,
     "downbeat_count": 177,
     "beats": [
@@ -15750,9 +15764,10 @@
       "avg": 0.35,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.214
+      "std": 0.214,
+      "raw_rms_db": -12.73
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "915c84ec-ce53-53a0-992b-6127ca7e8d87": {
     "track_id": "915c84ec-ce53-53a0-992b-6127ca7e8d87",
@@ -15764,11 +15779,11 @@
     "duration": 339.76,
     "sample_rate": 44100,
     "bpm": 90.909,
-    "key": "G# minor",
+    "key": "G# major",
     "key_name": "G#",
-    "mode": "minor",
-    "camelot": "1A",
-    "key_confidence": 0.082,
+    "mode": "major",
+    "camelot": "4B",
+    "key_confidence": 0.166,
     "beat_count": 1046,
     "downbeat_count": 123,
     "beats": [
@@ -16945,36 +16960,28 @@
       318.23
     ],
     "phrase_points": [
-      187.32,
       208.97,
-      229.91,
       250.74,
-      271.55,
       292.22
     ],
     "intro_phrase_points": [
       0.16,
-      20.81,
       41.62,
-      62.44,
-      83.25,
-      104.06
+      83.25
     ],
     "drop_points": [
       0.16,
       41.62,
-      62.44,
-      83.25,
-      20.81,
-      104.06
+      83.25
     ],
     "energy_summary": {
       "avg": 0.348,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.225
+      "std": 0.225,
+      "raw_rms_db": -10.14
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "27248106-3331-5e09-809e-8edb15b5e658": {
     "track_id": "27248106-3331-5e09-809e-8edb15b5e658",
@@ -16990,7 +16997,7 @@
     "key_name": "D",
     "mode": "minor",
     "camelot": "7A",
-    "key_confidence": 0.046,
+    "key_confidence": 0.017,
     "beat_count": 900,
     "downbeat_count": 224,
     "beats": [
@@ -18159,9 +18166,10 @@
       "avg": 0.379,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.218
+      "std": 0.218,
+      "raw_rms_db": -10.04
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "c67aace2-ea8b-5aff-9c89-e7da735634cb": {
     "track_id": "c67aace2-ea8b-5aff-9c89-e7da735634cb",
@@ -18177,7 +18185,7 @@
     "key_name": "B",
     "mode": "minor",
     "camelot": "10A",
-    "key_confidence": 0.167,
+    "key_confidence": 0.177,
     "beat_count": 471,
     "downbeat_count": 116,
     "beats": [
@@ -18798,9 +18806,10 @@
       "avg": 0.336,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.223
+      "std": 0.223,
+      "raw_rms_db": -11.99
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   },
   "3a4dc969-db77-5388-b2d4-af4badafc4ad": {
     "track_id": "3a4dc969-db77-5388-b2d4-af4badafc4ad",
@@ -18816,7 +18825,7 @@
     "key_name": "G#",
     "mode": "major",
     "camelot": "4B",
-    "key_confidence": 0.069,
+    "key_confidence": 0.018,
     "beat_count": 776,
     "downbeat_count": 193,
     "beats": [
@@ -19828,8 +19837,9 @@
       "avg": 0.396,
       "max": 1.0,
       "min": 0.0,
-      "std": 0.236
+      "std": 0.236,
+      "raw_rms_db": -11.08
     },
-    "analysis_version": "madmom_v2"
+    "analysis_version": "madmom_v3"
   }
 }
