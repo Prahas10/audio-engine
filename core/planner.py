@@ -29,7 +29,7 @@ from core.analysis import (
     verify_beat_alignment,
 )
 from core.library import get_track_metadata
-from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration
+from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration, choose_strategy_for_pair
 from models.schemas import CAMELOT_MAP
 
 
@@ -157,12 +157,22 @@ def local_energy_shape_score(candidate_time, energy_times, energy_values, window
 
     # Hard penalty: if Track A is already nearly silent at transition start,
     # this point is in a breakdown/outro — never a good transition point.
-    # Two thresholds work together:
-    #   normalised RMS < 0.20 → in a quiet section of this track
-    #   (was 0.12 — too low, missed LP Giobbi outro at -23dBFS)
+    #
+    # IMPORTANT: normalised energy is useless here. A track that sits at
+    # -20dBFS all the way through will normalise to 1.0 at its loudest,
+    # so a -25dBFS outro looks like 0.5 normalised — well above threshold.
+    # We must check the ABSOLUTE level: if the track body before the
+    # transition is below -20dBFS RMS, we are in outro/breakdown territory.
+    #
+    # raw_rms_db for the full track is available via track metadata but
+    # here we only have the energy_times/values (normalised). So we use the
+    # relationship: mean_before_normalised * raw_rms_db_linear = actual_rms.
+    # Since we can't recover raw_rms_db here, we enforce a stricter
+    # normalised threshold. A DJ would never transition from a section
+    # with < 30% of the track's own peak energy.
     mean_before = safe_mean(before)
-    if mean_before < 0.20:
-        return base * 0.20
+    if mean_before < 0.30:   # < 30% of track's own peak = breakdown territory
+        return base * 0.15   # heavy penalty — almost certainly wrong choice
 
     return base
 
@@ -239,17 +249,17 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
                                candidate_b_time + 16, candidate_b_time + 32)
 
     if len(after) >= 2:
-        mean_energy_after = float(np.mean(after))
-        # Also check the second 16s window — some tracks have a slow build.
-        # If either the immediate or second window has energy, allow the entry.
+        mean_energy_after  = float(np.mean(after))
         mean_energy_after2 = float(np.mean(after2)) if len(after2) >= 2 else 0.0
         best_energy = max(mean_energy_after, mean_energy_after2)
 
-        # Hard floor raised to 0.18: entries where energy stays near-silent
-        # for a full 32s are almost always wrong phrase choices.
-        if best_energy < 0.18:
-            return 0.08
-        energy_score = clamp01(0.4 + best_energy * 0.6)
+        # Hard gate: if both the immediate 16s and the following 16s are
+        # below 0.25, this entry is in a breakdown regardless of position.
+        # No position score or sync score can override genuinely quiet content.
+        if best_energy < 0.25:
+            return 0.06   # near-zero — effectively disqualified
+
+        energy_score = clamp01(0.35 + best_energy * 0.65)
     else:
         energy_score = 0.5
 
@@ -259,9 +269,7 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
     else:
         v_score = 1.0
 
-    # Energy weight raised to 0.40 (was 0.35): prevents position=1.0 from
-    # overriding a genuinely quiet entry point (the LP Giobbi hole problem).
-    return clamp01(0.35 * position_score + 0.40 * energy_score + 0.25 * v_score)
+    return clamp01(0.30 * position_score + 0.45 * energy_score + 0.25 * v_score)
 
 
 # ---------------------------------------------------------------------------
@@ -501,11 +509,13 @@ def plan_transition_logic(
                       f"{[round(t,1) for t in new_drops]}")
 
     # Score all A/B pairs
-    scored      = []
-    best_score  = -1.0
-    best_time   = candidates_a[0]
-    best_b_time = candidates_b[0]
-    best_parts  = {}
+    scored        = []
+    best_score    = -1.0
+    best_time     = candidates_a[0]
+    best_b_time   = candidates_b[0]
+    best_parts    = {}
+    sync_accuracy      = 0.5          # overwritten by exhaustive search
+    track_b_entry_time = best_b_time  # overwritten after sync search
 
     for ca in candidates_a:
         for cb in candidates_b:
@@ -532,9 +542,36 @@ def plan_transition_logic(
         mix_duration=planning_mix_duration,
         energy_score=best_parts.get("a_energy_score", 0.5),
         runway_score_value=best_parts.get("runway_score", 1.0),
-        sync_accuracy=1.0,
+        sync_accuracy=sync_accuracy if sync_accuracy and sync_accuracy > 0 else 0.5,
         key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
     )
+
+    # Override with pair-aware strategy: now that we know the actual
+    # energy at the A exit point and B entry point from the selected pair,
+    # choose a strategy that fits the specific content — not global averages.
+    _a_exit_window  = get_window_values(
+        energy_times_a, energy_values_a,
+        best_time, best_time + float(planning_mix_duration)
+    )
+    _b_entry_window = get_window_values(
+        energy_times_b, energy_values_b,
+        best_b_time, best_b_time + float(planning_mix_duration)
+    )
+    _energy_at_a_exit  = float(np.mean(_a_exit_window))  if len(_a_exit_window)  >= 2 else 0.5
+    _energy_at_b_entry = float(np.mean(_b_entry_window)) if len(_b_entry_window) >= 2 else 0.5
+
+    pair_strategy, pair_reason = choose_strategy_for_pair(
+        energy_at_a_exit=_energy_at_a_exit,
+        energy_at_b_entry=_energy_at_b_entry,
+        sync_accuracy=sync_accuracy if sync_accuracy and sync_accuracy > 0 else 0.5,
+        harmonic_ok=harmonic_ok,
+        bpm_a=bpm_a, bpm_b=bpm_b,
+        key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
+        best_time=best_time, song_duration_a=duration_a,
+    )
+    print(f"Pair-aware strategy: {pair_strategy}  ({pair_reason})")
+    print(f"Router strategy was: {strategy} — overriding with pair-aware selection.")
+    strategy = pair_strategy
 
     mix_duration = (preferred_mix_duration if preferred_mix_duration is not None
                     else get_strategy_mix_duration(strategy, bpm_a))
@@ -608,6 +645,22 @@ def plan_transition_logic(
     for (a_time, b_time), pair_score in pairs_ranked:
         a_s = int(a_time * TARGET_SR)
         b_s = int(b_time * TARGET_SR)
+
+        # Pre-check: if B entry is disqualified by energy gate, skip sync entirely.
+        # This prevents a high sync score overriding a dead breakdown entry.
+        _after_check = get_window_values(
+            energy_times_b, energy_values_b, b_time, b_time + 32.0
+        )
+        _b_energy = float(np.mean(_after_check)) if len(_after_check) >= 2 else 0.0
+        if _b_energy < 0.25:
+            print(f"  A={a_time:.1f}s B={b_time:.1f}s — B entry energy {_b_energy:.3f} < 0.25, skipping")
+            # Still track in fallback with minimum combined score
+            if -0.5 > fallback_combined:
+                fallback_combined = -0.5
+                fallback_b_time   = b_time
+                fallback_a_time   = a_time
+                fallback_a_s      = a_s
+            continue
 
         synced_b, sync_acc = fine_sync_onset(
             y_a=y_a, y_b=y_b,

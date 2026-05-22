@@ -267,6 +267,198 @@ def _energy_from_fx(fx_parameters, default=0.5):
     return float(getattr(fx_parameters, "energy_score", None) or default)
 
 
+
+def choose_strategy_for_pair(
+    energy_at_a_exit: float,
+    energy_at_b_entry: float,
+    sync_accuracy: float,
+    harmonic_ok: bool,
+    bpm_a: float,
+    bpm_b: float,
+    key_confidence_a: float = 0.7,
+    key_confidence_b: float = 0.7,
+    best_time: float = 0.0,
+    song_duration_a: float = 300.0,
+) -> tuple:
+    """
+    Strategy selection. Quality hierarchy is the primary design goal:
+        ★★★ GREAT: percussion_blend, phrase_mix, harmonic_mix, long_eq_blend, loop_roll
+        ★★  GOOD:  lpf_sweep, hpf_sweep, breakdown_blend, energy_blend
+        ★   NICHE: techno_filter_drive, echo_out, reverb_wash, ambient_transition
+
+    Decision axes:
+        gradient  = B_entry - A_exit   (LIFT>=+0.18, DROP<=-0.18, else FLAT)
+        BOTH_HIGH = both > 0.60
+        BOTH_LOW  = both < 0.30
+        A_DEAD    = A < 0.25 (always treat as LIFT regardless of gradient)
+        SYNC_TIGHT >= 0.80, SYNC_MEDIUM 0.55-0.80
+        A_LATE    = track position > 78%
+    """
+    bpm_delta = abs(bpm_a - bpm_b)
+    gradient  = energy_at_b_entry - energy_at_a_exit
+
+    A_DEAD    = energy_at_a_exit < 0.25   # genuinely silent/dead
+    LIFT      = gradient >= 0.18 or A_DEAD # B brings energy OR A is dead
+    DROP      = gradient <= -0.18 and not A_DEAD
+
+    BOTH_LOW  = energy_at_a_exit < 0.30 and energy_at_b_entry < 0.30
+    BOTH_HIGH = energy_at_a_exit > 0.60 and energy_at_b_entry > 0.60
+
+    A_FULL = energy_at_a_exit  >= 0.45
+    B_FULL = energy_at_b_entry >= 0.45
+
+    SYNC_TIGHT  = sync_accuracy >= 0.80
+    SYNC_MEDIUM = 0.55 <= sync_accuracy < 0.80
+
+    BPM_CLOSE  = bpm_delta <= 4
+    BPM_MEDIUM = 4 < bpm_delta <= 8
+    BPM_WIDE   = bpm_delta > 8
+
+    a_pos  = best_time / max(song_duration_a, 1.0)
+    A_LATE = a_pos > 0.78
+
+    reason_parts = [
+        f"A={energy_at_a_exit:.2f} B={energy_at_b_entry:.2f}",
+        f"grad={'lift' if LIFT else 'drop' if DROP else 'flat'}({gradient:+.2f})",
+        f"sync={'tight' if SYNC_TIGHT else 'medium'}({sync_accuracy:.2f})",
+        f"harm={harmonic_ok} bpm_delta={bpm_delta:.1f}",
+        f"a_pos={a_pos:.2f}({'late' if A_LATE else 'normal'})",
+    ]
+
+    # -----------------------------------------------------------------------
+    # BOTH LOW — atmospheric
+    # -----------------------------------------------------------------------
+    if BOTH_LOW:
+        strategy = "ambient_transition"
+        reason_parts.append("both low")
+
+    # -----------------------------------------------------------------------
+    # LIFT — B brings energy (or A is dead)
+    # ★★★ phrase_mix / harmonic_mix preferred over sweeps
+    # -----------------------------------------------------------------------
+    elif LIFT:
+        if A_DEAD:
+            # A has nothing — let B lead entirely
+            strategy = "breakdown_blend" if harmonic_ok else "energy_blend"
+        elif SYNC_TIGHT and harmonic_ok and BPM_CLOSE:
+            strategy = "phrase_mix"          # ★★★
+        elif SYNC_TIGHT and harmonic_ok:
+            strategy = "harmonic_mix"        # ★★★
+        elif SYNC_TIGHT and A_FULL:
+            strategy = "hpf_sweep"           # A has real content to sweep
+        elif SYNC_TIGHT:
+            strategy = "lpf_sweep"           # A moderate — blur not sweep
+        elif SYNC_MEDIUM and harmonic_ok and BPM_CLOSE:
+            strategy = "lpf_sweep"           # blur A, B slides in
+        elif SYNC_MEDIUM and harmonic_ok:
+            strategy = "breakdown_blend"
+        elif SYNC_MEDIUM and A_FULL:
+            strategy = "hpf_sweep"
+        else:
+            strategy = "lpf_sweep"
+        reason_parts.append("B lifts / A exits")
+
+    # -----------------------------------------------------------------------
+    # DROP — A stronger, B sparse
+    # ★★★ long_eq_blend / harmonic_mix to carry A while B builds
+    # -----------------------------------------------------------------------
+    elif DROP:
+        if SYNC_TIGHT and harmonic_ok and BPM_CLOSE:
+            strategy = "long_eq_blend"       # ★★★ full EQ journey
+        elif harmonic_ok:
+            strategy = "harmonic_mix"        # ★★★
+        else:
+            strategy = "energy_blend"        # bass-delayed, safe
+        reason_parts.append("A stronger, B sparse")
+
+    # -----------------------------------------------------------------------
+    # FLAT — main DJ zone
+    # -----------------------------------------------------------------------
+    else:
+
+        # BOTH HIGH — peak energy
+        if BOTH_HIGH:
+            if SYNC_TIGHT and BPM_CLOSE and harmonic_ok:
+                strategy = "loop_roll" if energy_at_a_exit >= 0.72 else "percussion_blend"  # ★★★
+            elif SYNC_TIGHT and BPM_CLOSE:
+                strategy = "techno_filter_drive"  # non-harmonic peak — filter is appropriate
+            elif SYNC_TIGHT and BPM_MEDIUM and harmonic_ok:
+                strategy = "phrase_mix"      # ★★★
+            elif SYNC_TIGHT and BPM_MEDIUM:
+                strategy = "hpf_sweep"
+            elif SYNC_MEDIUM and BPM_CLOSE and harmonic_ok:
+                strategy = "percussion_blend"  # ★★★ works at medium sync too
+            elif SYNC_MEDIUM and BPM_CLOSE:
+                strategy = "techno_filter_drive"
+            elif SYNC_MEDIUM and harmonic_ok:
+                strategy = "phrase_mix"
+            else:
+                strategy = "hpf_sweep"
+            reason_parts.append("both peak energy")
+
+        # A LATE — track nearly done
+        elif A_LATE:
+            if SYNC_TIGHT and BPM_CLOSE and harmonic_ok:
+                strategy = "percussion_blend"  # ★★★ groove handoff
+            elif SYNC_TIGHT and harmonic_ok:
+                strategy = "phrase_mix"      # ★★★
+            elif SYNC_TIGHT and BPM_CLOSE:
+                strategy = "lpf_sweep"
+            elif SYNC_MEDIUM and BPM_CLOSE and harmonic_ok:
+                strategy = "percussion_blend" if (A_FULL and B_FULL) else "phrase_mix"
+            elif SYNC_MEDIUM and harmonic_ok:
+                strategy = "phrase_mix"
+            elif BPM_CLOSE:
+                strategy = "lpf_sweep"
+            else:
+                strategy = "energy_blend"
+            reason_parts.append("A late in track")
+
+        # NORMAL outro zone
+        else:
+            if SYNC_TIGHT and BPM_CLOSE and harmonic_ok:
+                strategy = "percussion_blend" if (A_FULL and B_FULL) else "phrase_mix"  # ★★★
+            elif SYNC_TIGHT and BPM_CLOSE and not harmonic_ok:
+                # Non-harmonic tight: techno_filter only if both genuinely full
+                # Otherwise energy_blend is cleaner
+                strategy = "techno_filter_drive" if (A_FULL and B_FULL) else "energy_blend"
+            elif SYNC_TIGHT and BPM_MEDIUM and harmonic_ok:
+                strategy = "harmonic_mix"    # ★★★
+            elif SYNC_TIGHT and BPM_MEDIUM and not harmonic_ok:
+                strategy = "hpf_sweep" if A_FULL else "energy_blend"
+            elif SYNC_TIGHT and harmonic_ok:
+                strategy = "phrase_mix"      # ★★★
+            elif SYNC_TIGHT:
+                strategy = "energy_blend"    # wide BPM + no harm + loose = safe
+            elif SYNC_MEDIUM and BPM_CLOSE and harmonic_ok:
+                # percussion_blend works fine at medium sync — bass enters late
+                # which naturally absorbs small timing offsets
+                strategy = "percussion_blend" if (A_FULL and B_FULL) else "phrase_mix"
+            elif SYNC_MEDIUM and BPM_CLOSE and not harmonic_ok:
+                strategy = "energy_blend"    # safe for non-harmonic medium sync
+            elif SYNC_MEDIUM and BPM_MEDIUM and harmonic_ok:
+                strategy = "phrase_mix"      # ★★★
+            elif SYNC_MEDIUM and BPM_MEDIUM and not harmonic_ok:
+                strategy = "energy_blend"
+            elif SYNC_MEDIUM and harmonic_ok:
+                strategy = "harmonic_mix"    # ★★★
+            else:
+                strategy = "energy_blend"
+            reason_parts.append("flat, normal zone")
+
+    # -----------------------------------------------------------------------
+    # Eligibility guard
+    # -----------------------------------------------------------------------
+    req = STRATEGY_REQUIREMENTS.get(strategy, {})
+    if req.get("harmonic") is True and not harmonic_ok:
+        strategy = "energy_blend"
+        reason_parts.append("harmonic required → energy_blend")
+    if bpm_delta > req.get("max_bpm_delta", 99):
+        strategy = "energy_blend"
+        reason_parts.append("bpm_delta too wide → energy_blend")
+
+    return strategy, " | ".join(reason_parts)
+
 def _hpf_sweep_dispatch(segment_a, segment_b, sr, fx_parameters):
     end_freq     = getattr(fx_parameters, "hpf_sweep_end_freq", None) if fx_parameters else None
     end_freq     = end_freq or 3500.0
