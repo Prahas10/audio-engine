@@ -44,8 +44,8 @@ from models.schemas import CAMELOT_MAP, FXParameters
 # Constants
 # ---------------------------------------------------------------------------
 
-TARGET_RMS    = 0.08
-PEAK_CEILING  = 0.93
+TARGET_RMS    = 0.06   # lowered — peak was 0.95, risk of clipping
+PEAK_CEILING  = 0.90
 
 _CONTINUOUS_SET_BANNED   = {"bass_swap", "drop_mix"}
 _CONTINUOUS_SET_FALLBACK = {"bass_swap": "energy_blend", "drop_mix": "phrase_mix"}
@@ -160,29 +160,23 @@ def _current_sample_to_original_time(sample, current_original_offset, current_ra
 # ---------------------------------------------------------------------------
 
 def _safe_strategy(plan) -> str:
-    strategy     = plan.get("recommended_strategy", "energy_blend")
-    harmonic     = bool(plan.get("harmonic_compatible", False))
-    mix_duration = float(plan.get("mix_duration", 30.0))
+    """
+    Enforces hard constraints for continuous-set rendering.
+    Trusts the planner's pair-aware strategy — only blocks structural bans.
+    """
+    strategy = plan.get("recommended_strategy", "energy_blend")
+    harmonic = bool(plan.get("harmonic_compatible", False))
 
     if strategy in _CONTINUOUS_SET_BANNED:
         replacement = _CONTINUOUS_SET_FALLBACK.get(strategy, "energy_blend")
-        print(f"Continuous-set: {strategy} → {replacement} (banned in set mode)")
+        print(f"Continuous-set ban: {strategy} → {replacement}")
         return replacement
 
     if strategy == "harmonic_mix" and not harmonic:
-        print("Continuous-set: harmonic_mix → energy_blend (tracks not harmonically compatible)")
-        return "energy_blend"
-
-    if strategy == "long_eq_blend" and mix_duration < 24:
-        print("Continuous-set: long_eq_blend → energy_blend (mix duration too short)")
+        print(f"Continuous-set: harmonic_mix → energy_blend (keys incompatible)")
         return "energy_blend"
 
     return strategy
-
-
-# ---------------------------------------------------------------------------
-# Gain helpers (single-clip renderer)
-# ---------------------------------------------------------------------------
 
 def _measure_lufs_simple(y, sr):
     block_len = int(0.4 * sr)
@@ -353,6 +347,7 @@ def render_continuous_set_from_ordered_tracks(
     current_rate            = 1.0
     set_cursor_seconds      = 0.0
 
+    last_strategy = ""
     for idx in range(len(loaded) - 1):
         next_track = loaded[idx + 1]
         print(
@@ -365,11 +360,13 @@ def render_continuous_set_from_ordered_tracks(
             track_a_path=current_track["path"],
             track_b_path=next_track["path"],
             preferred_mix_duration=preferred_mix_duration,
+            last_strategy=last_strategy,
         )
         plan_t_orig  = float(plan["recommended_transition_start_time"])
         plan_b_orig  = float(plan["recommended_track_b_entry_time"])
         mix_duration = float(plan["mix_duration"])
         strategy     = _safe_strategy(plan)
+        last_strategy = strategy   # passed to next transition for rotation
         mix_samples  = int(mix_duration * TARGET_SR)
 
         start_sample_a = _map_original_time_to_current_sample(

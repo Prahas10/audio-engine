@@ -476,6 +476,173 @@ def fine_sync_onset(
     return synced_sample, float(np.clip(best_score, 0.0, 1.0))
 
 
+def find_best_downbeat_sync(
+    y_a, y_b,
+    downbeats_a, downbeats_b,
+    transition_start_sample,
+    mix_duration,
+    sr,
+    bpm_a,
+    synced_b_sample: int = 0,
+    search_bars: int = 4,
+    max_b_intro_percent=0.20,
+):
+    """
+    Downbeat-to-downbeat sync — local search around phrase result.
+
+    Only examines B downbeats within ±search_bars of synced_b_sample
+    (the phrase-sync result). This keeps the downbeat refinement local —
+    it finds the nearest bar-start that aligns best, not a completely
+    different region of the track.
+
+    Returns (best_b_start_sample, best_score).
+    """
+    hop       = 512
+    mix_samp  = int(mix_duration * sr)
+    half_beat = int((60.0 / max(bpm_a, 1.0)) * sr * 2)
+    bar_samp  = int((60.0 / max(bpm_a, 1.0)) * sr * 4)
+
+    downbeats_a = np.asarray(downbeats_a, dtype=int)
+    downbeats_b = np.asarray(downbeats_b, dtype=int)
+
+    if len(downbeats_a) == 0 or len(downbeats_b) == 0:
+        return int(synced_b_sample), 0.0
+
+    # Reference onset from A at transition point
+    a_end   = min(len(y_a), transition_start_sample + mix_samp)
+    a_chunk = y_a[transition_start_sample:a_end]
+    if len(a_chunk) < hop * 4:
+        return int(synced_b_sample), 0.0
+
+    onset_a = librosa.onset.onset_strength(y=a_chunk, sr=sr, hop_length=hop)
+
+    # B downbeats within ±search_bars of the phrase-sync result
+    search_radius = bar_samp * search_bars
+    max_b_sample  = int(len(y_b) * max_b_intro_percent)
+    b_intro_dbs   = downbeats_b[
+        (downbeats_b >= max(0, synced_b_sample - search_radius)) &
+        (downbeats_b <= min(max_b_sample, synced_b_sample + search_radius))
+    ]
+    if len(b_intro_dbs) == 0:
+        # No downbeats in window — return phrase result unchanged
+        return int(synced_b_sample), 0.0
+
+    best_b_start = int(b_intro_dbs[0]) if len(b_intro_dbs) > 0 else 0
+    best_score   = -1.0
+
+    for b_db in b_intro_dbs:
+        b_start = int(b_db)
+        b_end   = min(len(y_b), b_start + mix_samp)
+        b_chunk = y_b[b_start:b_end]
+        if len(b_chunk) < hop * 4:
+            continue
+
+        onset_b = librosa.onset.onset_strength(y=b_chunk, sr=sr, hop_length=hop)
+        min_len  = min(len(onset_a), len(onset_b))
+        if min_len < 8:
+            continue
+
+        # Normalised cross-correlation
+        a_n   = onset_a[:min_len] - np.mean(onset_a[:min_len])
+        b_n   = onset_b[:min_len] - np.mean(onset_b[:min_len])
+        std_a = np.std(a_n)
+        std_b = np.std(b_n)
+        if std_a < 1e-9 or std_b < 1e-9:
+            continue
+
+        corr       = float(np.dot(a_n, b_n) / (std_a * std_b * min_len))
+
+        # Alignment bonus: check actual lag between the two onsets
+        # Peak of cross-correlation tells us if downbeats are truly in phase
+        full_corr  = np.correlate(a_n, b_n, mode='full')
+        lag_frames = int(np.argmax(full_corr)) - (min_len - 1)
+        lag_samp   = lag_frames * hop
+        alignment  = float(np.clip(1.0 - abs(lag_samp) / max(half_beat, 1), 0.0, 1.0))
+
+        # Combined: onset match × how close to zero-lag the downbeats are
+        score = corr * 0.60 + alignment * 0.40
+
+        if score > best_score:
+            best_score   = score
+            best_b_start = b_start
+
+    return best_b_start, float(np.clip(best_score, 0.0, 1.0))
+
+
+def align_beats_to_grid(
+    beats_a, beats_b,
+    transition_start_sample,
+    synced_b_sample,
+    bpm_a, sr,
+):
+    """
+    Sample-accurate beat alignment.
+
+    Finds the exact sample offset needed so that Track B's first beat
+    after synced_b_sample lands on exactly the same grid position as
+    Track A's first beat after transition_start_sample.
+
+    Steps:
+      1. Find A's next beat at/after transition_start_sample
+      2. Find B's next beat at/after synced_b_sample
+      3. Compute how far each beat is from its segment start
+      4. Shift synced_b_sample so B's beat-offset matches A's beat-offset
+      5. Validate: adjusted position is still within a sensible range
+         (within ±1 beat of original — guards against grid detection errors)
+
+    Returns (aligned_b_sample, offset_samples, offset_ms).
+    """
+    beats_a = np.asarray(beats_a, dtype=int)
+    beats_b = np.asarray(beats_b, dtype=int)
+
+    if len(beats_a) == 0 or len(beats_b) == 0:
+        return int(synced_b_sample), 0, 0.0
+
+    beat_dur = int((60.0 / max(bpm_a, 1.0)) * sr)  # 1 beat in samples
+
+    # Step 1: first A beat at or after transition_start_sample
+    a_after = beats_a[beats_a >= transition_start_sample]
+    if len(a_after) == 0:
+        a_after = beats_a[beats_a >= transition_start_sample - beat_dur]
+    if len(a_after) == 0:
+        return int(synced_b_sample), 0, 0.0
+
+    a_next_beat   = int(a_after[0])
+    a_beat_offset = a_next_beat - transition_start_sample  # samples from A start to A's beat
+
+    # Step 2: first B beat at or after synced_b_sample
+    b_after = beats_b[beats_b >= synced_b_sample]
+    if len(b_after) == 0:
+        b_after = beats_b[beats_b >= synced_b_sample - beat_dur]
+    if len(b_after) == 0:
+        return int(synced_b_sample), 0, 0.0
+
+    b_next_beat   = int(b_after[0])
+    b_beat_offset = b_next_beat - synced_b_sample  # samples from B start to B's beat
+
+    # Step 3: alignment error — how many samples B's beat is ahead of A's beat
+    # Positive: B's beat comes after A's → shift B start forward (delay B)
+    # Negative: B's beat comes before A's → shift B start back (advance B)
+    alignment_error = b_beat_offset - a_beat_offset
+
+    # Step 4: apply correction
+    aligned_b_sample = int(synced_b_sample) + alignment_error
+
+    # Step 5: validate — clamp to ±1 beat of original to guard against
+    # cases where the beat grid detector placed a beat wildly wrong
+    max_shift = beat_dur
+    if abs(alignment_error) > max_shift:
+        # Error too large — grid detection may be unreliable here
+        # Halve the correction as a conservative estimate
+        alignment_error  = alignment_error // 2
+        aligned_b_sample = int(synced_b_sample) + alignment_error
+
+    aligned_b_sample = max(0, aligned_b_sample)
+    offset_ms        = float(alignment_error / sr * 1000.0)
+
+    return aligned_b_sample, alignment_error, offset_ms
+
+
 # ---------------------------------------------------------------------------
 # Post-stretch refinement
 # ---------------------------------------------------------------------------

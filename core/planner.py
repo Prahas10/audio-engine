@@ -20,16 +20,17 @@ from core.analysis import (
     safe_bpm_from_path,
     estimate_key,
     get_energy_curve,
-    get_drop_candidates,
     phrase_boundary_candidates_from_downbeats,
     intro_phrase_candidates_from_downbeats,
     get_phrase_boundaries,
     camelot_compatible,
     fine_sync_onset,
+    find_best_downbeat_sync,
+    align_beats_to_grid,
     verify_beat_alignment,
 )
 from core.library import get_track_metadata
-from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration, choose_strategy_for_pair
+from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration
 from models.schemas import CAMELOT_MAP
 
 
@@ -171,8 +172,18 @@ def local_energy_shape_score(candidate_time, energy_times, energy_values, window
     # normalised threshold. A DJ would never transition from a section
     # with < 30% of the track's own peak energy.
     mean_before = safe_mean(before)
-    if mean_before < 0.30:   # < 30% of track's own peak = breakdown territory
-        return base * 0.15   # heavy penalty — almost certainly wrong choice
+
+    # Two-tier silence check:
+    # 1. Normalised: < 0.40 of track's own peak → quiet section
+    #    (raised from 0.30 — 30% is still audibly quiet in electronic music)
+    if mean_before < 0.40:
+        return base * 0.15
+
+    # 2. Absolute: if after section is also quiet, A is truly fading out
+    #    and there's nothing left to transition from
+    mean_after = safe_mean(after)
+    if mean_after < 0.25:    # A is fading hard — not a good exit point
+        return base * 0.20
 
     return base
 
@@ -256,8 +267,10 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
         # Hard gate: if both the immediate 16s and the following 16s are
         # below 0.25, this entry is in a breakdown regardless of position.
         # No position score or sync score can override genuinely quiet content.
+        if best_energy < 0.15:
+            return 0.04   # truly silent — disqualified
         if best_energy < 0.25:
-            return 0.06   # near-zero — effectively disqualified
+            return 0.35   # quiet but acceptable with long mix durations
 
         energy_score = clamp01(0.35 + best_energy * 0.65)
     else:
@@ -418,6 +431,7 @@ def find_best_sync_point(
 def plan_transition_logic(
     track_a_path, track_b_path, preferred_mix_duration,
     library_path="storage/library_metadata.json",
+    last_strategy: str = "",
 ):
     if not os.path.exists(track_a_path):
         raise HTTPException(status_code=400, detail=f"Track A not found: {track_a_path}")
@@ -451,62 +465,53 @@ def plan_transition_logic(
         vocal_times_a = vocal_prob_a = None
         vocal_times_b = vocal_prob_b = None
 
-    planning_mix_duration = preferred_mix_duration or round((60.0 / bpm_a) * 32 * 2, 1)
+    # Default mix duration: 32 bars at track BPM.
+    # Melodic house mixes are long blends — 32 bars (60s at 128 BPM) is
+    # the minimum to hear both tracks' melodies overlap properly.
+    # 16 bars (30s) is too short — the blend is invisible in melodic styles.
+    _default_mix_dur = round((60.0 / max(bpm_a, 1.0)) * 4 * 32, 1)  # 32 bars
+    _default_mix_dur = max(_default_mix_dur, 60.0)   # floor at 60s
+    _default_mix_dur = min(_default_mix_dur, 120.0)  # cap at 120s
+    planning_mix_duration = preferred_mix_duration or _default_mix_dur
 
+    # A exit zone: 60-85% of track duration.
+    # < 60%: track is still building — too early to exit
+    # > 85%: track is in quiet outro — energy already gone (causes silence holes)
+    # 60-85%: track is at or past peak, still has energy — correct DJ exit zone
     candidates_a = phrase_boundary_candidates_from_downbeats(
         downbeats=downbeats_a, sr=TARGET_SR, song_duration=duration_a,
-        bpm=bpm_a, min_percent=0.55, max_percent=0.92,
+        bpm=bpm_a, min_percent=0.60, max_percent=0.85,
     )
     if not candidates_a:
         candidates_a = get_phrase_candidates(beats_a, TARGET_SR, duration_a)
     if not candidates_a:
         raise HTTPException(status_code=400, detail="No Track A transition candidates found.")
 
+    # Phase-grouped B candidates — fast pair selection (~9 candidates)
+    # B entry zone: 0-20% of track duration.
+    # Melodic house intros are typically 16-32 bars (30-60s).
+    # A DJ brings Track B in at bar 1 of its intro — very early.
+    # 20% of a 6min track = 72s — still allows for longer intros.
     candidates_b = intro_phrase_candidates_from_downbeats(
         downbeats=downbeats_b, sr=TARGET_SR, song_duration=duration_b,
-        bpm=bpm_b, max_percent=0.35,
+        bpm=bpm_b, max_percent=0.20,
     )
     if not candidates_b:
         candidates_b = track_b_intro_phrase_candidates(beats_b, TARGET_SR, duration_b)
     if not candidates_b:
         raise HTTPException(status_code=400, detail="No Track B entry candidates found.")
 
-    # Augment candidates_b with energy-jump points (drop_points).
-    # These mark where the kick/energy section begins after a quiet intro.
-    # Critical for sparse-intro tracks (piano, ambient) where the phrase
-    # boundary is at bar-1 but energy doesn't start until bar-9 or later.
-    #
-    # Source priority:
-    #   1. drop_points from library metadata (pre-computed)
-    #   2. Computed live from y_b if metadata is missing or empty
-    _drop_pts_raw = []
-    if track_b.get("metadata") and track_b["metadata"].get("drop_points"):
-        _drop_pts_raw = track_b["metadata"]["drop_points"]
+    # Store all downbeats in intro zone for post-selection zoom step
+    _all_intro_downbeats_b = [
+        round(float(t), 3)
+        for t in librosa.samples_to_time(np.asarray(downbeats_b), sr=TARGET_SR)
+        if 0.0 <= float(t) <= duration_b * 0.20
+    ]
 
-    if not _drop_pts_raw:
-        # Compute live: score all intro candidates by energy jump
-        print("Computing drop_points live for Track B (not in metadata)...")
-        try:
-            _drop_pts_raw = get_drop_candidates(
-                y=y_b, sr=TARGET_SR,
-                candidate_times=candidates_b,
-                top_k=8,
-            )
-        except Exception as e:
-            print(f"Live drop_points computation failed ({e})")
-
-    if _drop_pts_raw:
-        drop_pts = [
-            float(t) for t in _drop_pts_raw
-            if 0 <= float(t) <= duration_b * 0.50
-        ]
-        if drop_pts:
-            existing_set = set(round(c, 1) for c in candidates_b)
-            new_drops    = [t for t in drop_pts if round(t, 1) not in existing_set]
-            if new_drops:
-                candidates_b = candidates_b + new_drops
-                print(f"Added {len(new_drops)} drop_point candidates for Track B: "
-                      f"{[round(t,1) for t in new_drops]}")
+    # candidates_b is intro phrase points only — no drop_points augmentation.
+    # drop_points can be 60-120s into a track (well past the intro zone)
+    # which is not where a DJ brings in Track B. The intro_phrase_candidates
+    # already cover the correct region (0-35% of track from downbeats).
 
     # Score all A/B pairs
     scored        = []
@@ -536,42 +541,10 @@ def plan_transition_logic(
             if score > best_score:
                 best_score = score; best_time = ca; best_b_time = cb; best_parts = parts
 
-    strategy, strategy_scores = choose_strategy_with_scores(
-        harmonic_ok=harmonic_ok, bpm_a=bpm_a, bpm_b=bpm_b,
-        best_time=best_time, song_duration_a=duration_a,
-        mix_duration=planning_mix_duration,
-        energy_score=best_parts.get("a_energy_score", 0.5),
-        runway_score_value=best_parts.get("runway_score", 1.0),
-        sync_accuracy=sync_accuracy if sync_accuracy and sync_accuracy > 0 else 0.5,
-        key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
-    )
-
-    # Override with pair-aware strategy: now that we know the actual
-    # energy at the A exit point and B entry point from the selected pair,
-    # choose a strategy that fits the specific content — not global averages.
-    _a_exit_window  = get_window_values(
-        energy_times_a, energy_values_a,
-        best_time, best_time + float(planning_mix_duration)
-    )
-    _b_entry_window = get_window_values(
-        energy_times_b, energy_values_b,
-        best_b_time, best_b_time + float(planning_mix_duration)
-    )
-    _energy_at_a_exit  = float(np.mean(_a_exit_window))  if len(_a_exit_window)  >= 2 else 0.5
-    _energy_at_b_entry = float(np.mean(_b_entry_window)) if len(_b_entry_window) >= 2 else 0.5
-
-    pair_strategy, pair_reason = choose_strategy_for_pair(
-        energy_at_a_exit=_energy_at_a_exit,
-        energy_at_b_entry=_energy_at_b_entry,
-        sync_accuracy=sync_accuracy if sync_accuracy and sync_accuracy > 0 else 0.5,
-        harmonic_ok=harmonic_ok,
-        bpm_a=bpm_a, bpm_b=bpm_b,
-        key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
-        best_time=best_time, song_duration_a=duration_a,
-    )
-    print(f"Pair-aware strategy: {pair_strategy}  ({pair_reason})")
-    print(f"Router strategy was: {strategy} — overriding with pair-aware selection.")
-    strategy = pair_strategy
+    # Strategy selected later — after sync and beat alignment,
+    # using the actual final A exit and B entry positions.
+    strategy        = "energy_blend"   # placeholder until post-sync selection
+    strategy_scores = {}
 
     mix_duration = (preferred_mix_duration if preferred_mix_duration is not None
                     else get_strategy_mix_duration(strategy, bpm_a))
@@ -594,72 +567,56 @@ def plan_transition_logic(
     # ---------------------------------------------------------------------------
     # Exhaustive sync search — ALL (A_time, B_time) pairs
     #
-    # Score every pair by: combined = w_sync * sync_score + w_pair * pair_score
-    # This finds the pair where the beat grids actually lock, not just the one
-    # with the best musical structure score. The two scores are complementary:
-    #   pair_score  → musical fit (energy, harmonic, phrase position)
-    #   sync_score  → beat-grid lock quality (do the kicks actually align?)
-    #
-    # We need both. A musically perfect entry point that's 2 bars off in timing
-    # sounds worse than a slightly less perfect entry that's beat-locked.
-    # ---------------------------------------------------------------------------
-    SYNC_TARGET     = 0.55   # combined score goal for sync dimension
-    SYNC_MIN_ACCEPT = 0.35   # below this, sync is pure noise
-    SYNC_WEIGHT     = 0.55   # sync quality weight in combined score
-    PAIR_WEIGHT     = 0.45   # musical fit weight in combined score
+    SYNC_TARGET     = 0.55   # minimum sync_accuracy to post-verify
+    SYNC_MIN_ACCEPT = 0.35   # below this, sync is noise — use energy fallback
 
-    # All unique (A_time, B_time) pairs from the scored list
+    # Build all unique (A_time, B_time) pairs from the scored list
     all_pairs = {}
     for row in scored:
         key = (round(row["track_a_time"], 2), round(row["track_b_time"], 2))
         if key not in all_pairs:
             all_pairs[key] = row["score"]
 
-    print(f"Exhaustive sync search across {len(all_pairs)} pairs "
-          f"({len(candidates_a)} A × {len(candidates_b)} B) — checking all...")
+        print(f"Sync search across {len(all_pairs)} pairs "
+          f"({len(candidates_a)} A × {len(candidates_b)} B) — best sync wins...")
 
-    # All candidates are evaluated. No early exit.
-    # Each candidate that reaches sync target is post-verified with the full
-    # mix_duration window. We keep the one with the best combined score
-    # among all candidates that pass post-verification.
-    # Candidates that fail post-verify are marked and skipped.
-    pairs_ranked   = sorted(all_pairs.items(), key=lambda x: x[1], reverse=True)
-    _bar_ms        = (4 * 60.0 / max(bpm_a, 1.0)) * 1000.0
+    # Every (A_time, B_time) pair is tested.
+    # The pair with the highest sync_accuracy that also passes post-verification
+    # (full mix_duration drift check) wins — pair_score is not part of this decision.
+    # pair_score already did its job when building the candidate lists;
+    # now we purely want the best beat-grid lock.
+
+    _bar_ms        = (4.0 * 60.0 / max(bpm_a, 1.0)) * 1000.0
     _check_samples = min(int(planning_mix_duration * TARGET_SR), len(y_a), len(y_b))
 
-    # Tracking
-    best_combined       = -1.0   # best combined among post-verified candidates
     best_sync_score     = -1.0
     best_synced_b       = chosen_b_sample
     best_pair_a_time    = best_time
     best_pair_b_time    = best_b_time
     best_transition_a   = transition_sample_a
 
-    # Also track best raw combined in case nothing passes post-verify
-    fallback_combined   = -1.0
+    fallback_sync_score = -1.0
     fallback_synced_b   = chosen_b_sample
     fallback_a_time     = best_time
     fallback_b_time     = best_b_time
     fallback_a_s        = transition_sample_a
 
+    # Sort by pair_score descending — best musical fit first.
+    # Selection: first pair (highest pair_score) that passes sync gate wins.
+    # Pair score is PRIMARY, sync is a minimum gate not the ranking criterion.
+    pairs_ranked = sorted(all_pairs.items(), key=lambda x: x[1], reverse=True)
+
     for (a_time, b_time), pair_score in pairs_ranked:
         a_s = int(a_time * TARGET_SR)
         b_s = int(b_time * TARGET_SR)
 
-        # Pre-check: if B entry is disqualified by energy gate, skip sync entirely.
-        # This prevents a high sync score overriding a dead breakdown entry.
+        # Pre-check: skip B entries with insufficient energy
         _after_check = get_window_values(
             energy_times_b, energy_values_b, b_time, b_time + 32.0
         )
         _b_energy = float(np.mean(_after_check)) if len(_after_check) >= 2 else 0.0
         if _b_energy < 0.25:
-            print(f"  A={a_time:.1f}s B={b_time:.1f}s — B entry energy {_b_energy:.3f} < 0.25, skipping")
-            # Still track in fallback with minimum combined score
-            if -0.5 > fallback_combined:
-                fallback_combined = -0.5
-                fallback_b_time   = b_time
-                fallback_a_time   = a_time
-                fallback_a_s      = a_s
+            print(f"  A={a_time:.1f}s B={b_time:.1f}s — B energy {_b_energy:.3f} < 0.25, skip")
             continue
 
         synced_b, sync_acc = fine_sync_onset(
@@ -670,21 +627,19 @@ def plan_transition_logic(
             search_window_beats=4,
         )
 
-        combined = SYNC_WEIGHT * sync_acc + PAIR_WEIGHT * pair_score
+        # Track best raw result as fallback (no post-verify required)
+        if sync_acc > fallback_sync_score:
+            fallback_sync_score = sync_acc
+            fallback_synced_b   = synced_b
+            fallback_a_time     = a_time
+            fallback_b_time     = b_time
+            fallback_a_s        = a_s
 
-        # Track best raw result as fallback
-        if combined > fallback_combined:
-            fallback_combined = combined
-            fallback_synced_b = synced_b
-            fallback_a_time   = a_time
-            fallback_b_time   = b_time
-            fallback_a_s      = a_s
-
-        # Only post-verify candidates that clear the sync target
+        # Post-verify pairs that clear the sync threshold
         passed_verify = False
         verify_drift  = None
 
-        if sync_acc >= SYNC_TARGET:
+        if sync_acc >= SYNC_MIN_ACCEPT:  # sync is a gate, not the ranking
             _chk = min(_check_samples, len(y_a) - a_s, len(y_b) - synced_b)
             if _chk > TARGET_SR * 4:
                 try:
@@ -693,16 +648,30 @@ def plan_transition_logic(
                         y_b[synced_b:synced_b + _chk],
                         TARGET_SR, bpm_a,
                     )
-                    verify_drift = _drift_ms
-                    passed_verify = abs(_drift_ms) <= _bar_ms
+                    verify_drift  = _drift_ms
+                    # Sparse tracks (low sync scores) produce unreliable drift readings
+                    _tolerance    = _bar_ms * 2 if sync_acc < 0.62 else _bar_ms
+                    passed_verify = abs(_drift_ms) <= _tolerance
                 except Exception:
-                    passed_verify = True  # can't verify — trust sync score
+                    passed_verify = True
             else:
                 passed_verify = True
 
-        # Update best only if this pair cleared post-verification
-        if passed_verify and combined > best_combined:
-            best_combined     = combined
+        # Selection: highest pair_score that passes sync gate.
+        # Ties in pair_score broken by higher sync_accuracy.
+        _best_pair_score = all_pairs.get(
+            (round(best_pair_a_time, 2), round(best_pair_b_time, 2)), -1.0
+        ) if best_sync_score >= 0 else -1.0
+
+        _is_better = (
+            passed_verify and (
+                best_sync_score < 0                          # no winner yet
+                or pair_score > _best_pair_score + 0.001     # strictly better pair
+                or (abs(pair_score - _best_pair_score) <= 0.001  # tied pair score
+                    and sync_acc > best_sync_score)          # → higher sync wins
+            )
+        )
+        if _is_better:
             best_sync_score   = sync_acc
             best_synced_b     = synced_b
             best_pair_a_time  = a_time
@@ -710,34 +679,33 @@ def plan_transition_logic(
             best_transition_a = a_s
 
         drift_str = f" verify={verify_drift:.0f}ms" if verify_drift is not None else ""
+        selected  = (" ← selected" if best_pair_a_time == a_time
+                     and best_pair_b_time == b_time
+                     and best_sync_score >= 0 else "")
         status    = " ✓" if passed_verify and sync_acc >= SYNC_TARGET else                     (" ✗post-verify" if sync_acc >= SYNC_TARGET and not passed_verify else "")
-        print(f"  A={a_time:.1f}s B={b_time:.1f}s "
-              f"pair={pair_score:.3f} sync={sync_acc:.3f} combined={combined:.3f}"
-              f"{drift_str}{status}")
+        print(f"  A={a_time:.1f}s B={b_time:.1f}s pair={pair_score:.3f} "
+              f"sync={sync_acc:.3f}{drift_str}{status}{selected}")
 
     # Use best post-verified pair; fall back to best raw if nothing passed
-    if best_combined > -1.0:
+    if best_sync_score > -1.0:
         synced_b_sample     = best_synced_b
         sync_accuracy       = best_sync_score
         best_time           = best_pair_a_time
         best_b_time         = best_pair_b_time
         transition_sample_a = best_transition_a
-        print(f"Best verified pair: A={best_time:.1f}s B={best_b_time:.1f}s "
-              f"sync={sync_accuracy:.3f} combined={best_combined:.3f}")
+        print(f"Best pair: A={best_time:.1f}s B={best_b_time:.1f}s sync={sync_accuracy:.3f}")
     else:
-        # Nothing passed post-verify — use the raw best (sparse intro case)
         synced_b_sample     = fallback_synced_b
-        sync_accuracy       = -1.0
+        sync_accuracy       = fallback_sync_score
         best_time           = fallback_a_time
         best_b_time         = fallback_b_time
         transition_sample_a = fallback_a_s
-        print(f"No pair passed post-verify. Using raw best: "
-              f"A={best_time:.1f}s B={best_b_time:.1f}s")
+        print(f"No verified pair found. Best raw: A={best_time:.1f}s B={best_b_time:.1f}s "
+              f"sync={sync_accuracy:.3f}")
 
-    # Sparse-intro fallback: if still no good sync, use highest-energy B entry
+    # Sparse-intro fallback: no sync lock → use highest-energy B entry
     if sync_accuracy < SYNC_MIN_ACCEPT:
-        print(f"No sync lock (best={sync_accuracy:.3f}) — "
-              f"using highest-energy B entry.")
+        print(f"No sync lock (best={sync_accuracy:.3f}) — using highest-energy B entry.")
         try:
             rms_times, rms_vals, _ = get_energy_curve(y_b, TARGET_SR)
             best_drop_energy = -1.0
@@ -750,10 +718,106 @@ def plan_transition_logic(
                     best_drop_sample = int(cb * TARGET_SR)
             synced_b_sample = best_drop_sample
             best_b_time     = best_drop_sample / TARGET_SR
-            print(f"  Highest-energy B entry: {best_b_time:.2f}s "
-                  f"(energy={best_drop_energy:.3f})")
+            print(f"  Highest-energy B entry: {best_b_time:.2f}s (energy={best_drop_energy:.3f})")
         except Exception as e:
-            print(f"  Drop_point fallback failed ({e})")
+            print(f"  Highest-energy B entry fallback failed ({e})")
+
+    # -----------------------------------------------------------------------
+    # Stage 2: downbeat-level position selection.
+    # find_best_downbeat_sync evaluates every B downbeat in the intro zone
+    # and picks the one whose bar-1 aligns best with A's bar-1.
+    # If it beats the phrase-sync result, use it instead.
+    # -----------------------------------------------------------------------
+    print("Running downbeat sync...")
+    _db_b_start, _db_score = find_best_downbeat_sync(
+        y_a=y_a, y_b=y_b,
+        downbeats_a=downbeats_a, downbeats_b=downbeats_b,
+        transition_start_sample=transition_sample_a,
+        mix_duration=float(mix_duration),
+        sr=TARGET_SR, bpm_a=bpm_a,
+        synced_b_sample=int(synced_b_sample),
+        search_bars=4,
+        max_b_intro_percent=0.20,
+    )
+    print(f"  Phrase sync:   B={synced_b_sample/TARGET_SR:.2f}s  score={sync_accuracy:.3f}")
+    print(f"  Downbeat sync: B={_db_b_start/TARGET_SR:.2f}s  score={_db_score:.3f}")
+
+    if _db_score > sync_accuracy:
+        synced_b_sample = _db_b_start
+        sync_accuracy   = _db_score
+        print(f"  → Downbeat sync wins")
+    else:
+        print(f"  → Phrase sync kept")
+
+    # -----------------------------------------------------------------------
+    # Stage 3: sample-accurate beat alignment.
+    # Now that we have the best bar-level B entry position, compute the
+    # exact sample offset so B's first beat lands on A's beat grid.
+    # This removes the sub-beat flamming that remains after bar selection.
+    # -----------------------------------------------------------------------
+    _aligned_b, _beat_offset, _offset_ms = align_beats_to_grid(
+        beats_a=beats_a, beats_b=beats_b,
+        transition_start_sample=transition_sample_a,
+        synced_b_sample=synced_b_sample,
+        bpm_a=bpm_a, sr=TARGET_SR,
+    )
+    if abs(_beat_offset) > 0:
+        print(f"  Beat alignment: {_offset_ms:+.1f}ms offset → "
+              f"B={_aligned_b/TARGET_SR:.3f}s")
+        synced_b_sample = _aligned_b
+    else:
+        print(f"  Beat alignment: already on grid")
+
+    # -----------------------------------------------------------------------
+    # Strategy selection — now that we know the exact final positions.
+    # Read actual energy at:
+    #   A exit window: transition_sample_a → transition_sample_a + mix_duration
+    #   B entry window: synced_b_sample → synced_b_sample + mix_duration
+    # This is what the transition will actually sound like.
+    # -----------------------------------------------------------------------
+    _final_a_time = transition_sample_a / TARGET_SR
+    _final_b_time = synced_b_sample / TARGET_SR
+
+    _a_window = get_window_values(
+        energy_times_a, energy_values_a,
+        _final_a_time, _final_a_time + float(planning_mix_duration)
+    )
+    _b_window = get_window_values(
+        energy_times_b, energy_values_b,
+        _final_b_time, _final_b_time + float(planning_mix_duration)
+    )
+    _energy_a = float(np.mean(_a_window)) if len(_a_window) >= 2 else 0.5
+    _energy_b = float(np.mean(_b_window)) if len(_b_window) >= 2 else 0.5
+    _final_sync = sync_accuracy if sync_accuracy and sync_accuracy > 0 else 0.5
+
+    strategy, strategy_scores = choose_strategy_with_scores(
+        harmonic_ok=harmonic_ok, bpm_a=bpm_a, bpm_b=bpm_b,
+        best_time=_final_a_time, song_duration_a=duration_a,
+        mix_duration=planning_mix_duration,
+        energy_score=_energy_a,
+        runway_score_value=best_parts.get("runway_score", 1.0),
+        sync_accuracy=_final_sync,
+        key_confidence_a=key_conf_a, key_confidence_b=key_conf_b,
+    )
+
+    # Strategy rotation: if the selected strategy is the same as the last
+    # transition, pick the second-best scoring strategy instead.
+    # Prevents monotony across a set — no two consecutive transitions
+    # should use the same technique.
+    if last_strategy and strategy == last_strategy and len(strategy_scores) > 1:
+        sorted_scores = sorted(strategy_scores.items(), key=lambda x: x[1], reverse=True)
+        for alt_strategy, alt_score in sorted_scores[1:]:
+            # Only switch if the alternative is within 15% of the top score
+            top_score = sorted_scores[0][1]
+            if alt_score >= top_score * 0.85:
+                print(f"  Rotation: {strategy} used last transition → "
+                      f"switching to {alt_strategy} (score {alt_score:.3f} vs {top_score:.3f})")
+                strategy = alt_strategy
+                break
+
+    print(f"Strategy: {strategy}  "
+          f"(A_energy={_energy_a:.2f} B_energy={_energy_b:.2f} "
+          f"sync={_final_sync:.3f} harm={harmonic_ok})")
 
     mix_samples = int(mix_duration * TARGET_SR)
     track_b_entry_time = synced_b_sample / TARGET_SR
