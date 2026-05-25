@@ -27,9 +27,9 @@ TARGET_SR = 44100
 # ---------------------------------------------------------------------------
 
 def phrase_bars_from_bpm(bpm: float) -> int:
-    if bpm < 100:   return 16
-    elif bpm < 145: return 8
-    else:           return 4
+    if bpm < 100:   return 32
+    elif bpm < 145: return 16
+    else:           return 8
 
 
 # ---------------------------------------------------------------------------

@@ -681,7 +681,7 @@ def plan_transition_logic(
                     )
                     verify_drift  = _drift_ms
                     # Sparse tracks (low sync scores) produce unreliable drift readings
-                    _tolerance    = _bar_ms * 2 if sync_acc < 0.62 else _bar_ms
+                    _tolerance    = _bar_ms if sync_acc < 0.62 else (_bar_ms * 0.5)
                     passed_verify = abs(_drift_ms) <= _tolerance
                 except Exception:
                     passed_verify = True
