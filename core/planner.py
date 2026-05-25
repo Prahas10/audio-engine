@@ -29,6 +29,14 @@ from core.analysis import (
     align_beats_to_grid,
     verify_beat_alignment,
 )
+from core.stem_analysis import (
+    is_sparse_intro,
+    has_vocal_clash,
+    stem_activity_profile,
+    find_kick_onset,
+    get_stem_energy_at,
+    STEM_ACTIVE_THRESHOLD,
+)
 from core.library import get_track_metadata
 from core.strategy_router import choose_strategy_with_scores, get_strategy_mix_duration
 from models.schemas import CAMELOT_MAP
@@ -453,6 +461,15 @@ def plan_transition_logic(
     harmonic_ok               = camelot_compatible(camelot_a, camelot_b)
     energy_times_a, energy_values_a = track_a["energy_times"], track_a["energy_values"]
     energy_times_b, energy_values_b = track_b["energy_times"], track_b["energy_values"]
+
+    # Stem envelopes — empty dict if Demucs was not run at scan time
+    stem_env_a = track_a.get("metadata", {}).get("stem_envelopes", {}) or                  track_a.get("stem_envelopes", {})
+    stem_env_b = track_b.get("metadata", {}).get("stem_envelopes", {}) or                  track_b.get("stem_envelopes", {})
+    has_stems  = bool(stem_env_a and stem_env_b)
+    if has_stems:
+        print("Stem envelopes available — using stem-aware scoring")
+    else:
+        print("No stem envelopes — using RMS-only scoring (rescan with Demucs to improve)")
     raw_rms_db_a = track_a.get("raw_rms_db")
     raw_rms_db_b = track_b.get("raw_rms_db")
 
@@ -619,6 +636,20 @@ def plan_transition_logic(
             print(f"  A={a_time:.1f}s B={b_time:.1f}s — B energy {_b_energy:.3f} < 0.25, skip")
             continue
 
+        # Stem-aware sparse intro check: if drums AND bass are both near-zero,
+        # this B entry is in a piano-only or ambient section. Skip unless we
+        # have no alternatives (the fallback will catch it).
+        if has_stems and is_sparse_intro(stem_env_b, b_time, b_time + 32.0):
+            # Check if any better (non-sparse) B candidate exists
+            _non_sparse_exists = any(
+                not is_sparse_intro(stem_env_b, cb, cb + 32.0)
+                for cb in candidates_b if abs(cb - b_time) > 1.0
+            )
+            if _non_sparse_exists:
+                print(f"  A={a_time:.1f}s B={b_time:.1f}s — sparse intro "
+                      f"(no drums/bass), skip")
+                continue
+
         synced_b, sync_acc = fine_sync_onset(
             y_a=y_a, y_b=y_b,
             transition_start_sample=a_s,
@@ -767,6 +798,36 @@ def plan_transition_logic(
         synced_b_sample = _aligned_b
     else:
         print(f"  Beat alignment: already on grid")
+
+    # -----------------------------------------------------------------------
+    # Stem-aware validation of the selected pair
+    # -----------------------------------------------------------------------
+    if has_stems:
+        _mix_win = float(planning_mix_duration)
+        _a_t     = transition_sample_a / TARGET_SR
+        _b_t     = synced_b_sample / TARGET_SR
+
+        # Log stem activity at transition point
+        _a_profile = stem_activity_profile(stem_env_a, _a_t, _a_t + _mix_win)
+        _b_profile = stem_activity_profile(stem_env_b, _b_t, _b_t + _mix_win)
+        print(f"  A stems at exit: {_a_profile}")
+        print(f"  B stems at entry: {_b_profile}")
+
+        # Vocal clash warning
+        if has_vocal_clash(stem_env_a, stem_env_b, _a_t, _b_t, _mix_win):
+            print(f"  ⚠ Vocal clash detected — both tracks have vocals in mix window")
+
+        # Sparse B entry warning (made it through the pre-check but still sparse)
+        if is_sparse_intro(stem_env_b, _b_t, _b_t + _mix_win):
+            print(f"  ⚠ B entry is sparse (no drums/bass) — mix may sound hollow")
+
+        # Find where Track B's kick actually arrives (for logging/future use)
+        _kick_arrival = find_kick_onset(stem_env_b, _b_t, _b_t + _mix_win * 2)
+        if _kick_arrival < _b_t + _mix_win:
+            print(f"  B kick arrives at {_kick_arrival:.1f}s "
+                  f"({_kick_arrival - _b_t:.1f}s into the mix)")
+        else:
+            print(f"  B kick arrives after mix window — B is entirely sparse during blend")
 
     # -----------------------------------------------------------------------
     # Strategy selection — now that we know the exact final positions.

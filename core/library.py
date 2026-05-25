@@ -28,6 +28,10 @@ from core.analysis import (
     intro_phrase_candidates_from_downbeats,
     get_drop_candidates,
 )
+from core.stem_analysis import (
+    extract_stem_envelopes,
+    demucs_available,
+)
 
 
 def make_track_id(track_path):
@@ -95,6 +99,21 @@ def scan_track_metadata(track_path):
 
     stat = os.stat(abs_path)
 
+    # Stem envelope extraction via Demucs (runs only if Demucs is installed).
+    # Stores 10Hz energy envelopes per stem — no raw stem audio kept.
+    # Gracefully skipped if Demucs is unavailable.
+    stem_envelopes = {}
+    if demucs_available():
+        print(f"[library] Extracting stem envelopes: {os.path.basename(abs_path)}")
+        stem_envelopes = extract_stem_envelopes(abs_path)
+        if stem_envelopes:
+            print(f"[library] Stem envelopes extracted "
+                  f"({len(stem_envelopes.get('times', []))} frames)")
+        else:
+            print(f"[library] Stem extraction returned empty — continuing without stems")
+    else:
+        print(f"[library] Demucs not installed — skipping stem analysis")
+
     return {
         "track_id": make_track_id(abs_path),
         "path": abs_path,
@@ -132,6 +151,8 @@ def scan_track_metadata(track_path):
             "std": round(float(np.std(energy_values)), 3),
             "raw_rms_db": round(float(raw_rms_db), 2),
         },
+
+        "stem_envelopes": stem_envelopes,
 
         "analysis_version": "madmom_v3",
     }
