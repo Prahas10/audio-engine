@@ -215,14 +215,22 @@ def outro_zone_score(candidate_time, duration):
     return 0.10
 
 
-def phrase_strength_score(candidate_time, beats, sr, phrase_beats=32):
-    if beats is None or len(beats) == 0: return 0.4
-    beat_times   = librosa.samples_to_time(beats, sr=sr)
-    if len(beat_times) < phrase_beats + 1: return 0.45
-    phrase_times = beat_times[::phrase_beats]
+def phrase_strength_score(candidate_time, downbeats, sr, phrase_bars=8):
+    # FIX: Use downbeats (the '1' of the bar) instead of raw beats.
+    # 8 bars = 32 beats. This guarantees we stay locked to the musical phrasing.
+    if downbeats is None or len(downbeats) == 0: return 0.4
+    
+    downbeat_times = librosa.samples_to_time(downbeats, sr=sr)
+    if len(downbeat_times) < phrase_bars + 1: return 0.45
+    
+    # Group by exactly 8 bars starting from the true first downbeat
+    phrase_times = downbeat_times[::phrase_bars]
     nearest      = float(np.min(np.abs(phrase_times - candidate_time)))
-    avg_beat     = float(np.median(np.diff(beat_times))) if len(beat_times) > 2 else 0.5
-    return clamp01(1.0 - nearest / max(avg_beat * 1.5, 0.25))
+    
+    # Average bar duration is roughly 2 seconds at 120 BPM
+    avg_bar      = float(np.median(np.diff(downbeat_times))) if len(downbeat_times) > 2 else 2.0
+    
+    return clamp01(1.0 - nearest / max(avg_bar, 0.5))
 
 
 def spectral_low_stability_score(y, sr, candidate_time, window_seconds=16):
@@ -256,11 +264,18 @@ def track_b_intro_score(candidate_b_time, energy_times_b, energy_values_b, durat
     if duration_b <= 0:
         return 0.5
 
-    p = candidate_b_time / duration_b
-    if   0.00 <= p <= 0.20: position_score = 1.0
-    elif 0.20 <  p <= 0.35: position_score = 0.75
-    elif 0.35 <  p <= 0.50: position_score = 0.40
-    else:                   position_score = 0.15
+# FIX: Favor strict DJ entry points (0s, or after 16/32 bar intros)
+    # rather than randomly dropping the track anywhere in the first 70 seconds.
+    if candidate_b_time <= 1.0:
+        position_score = 1.0       # Perfect: Very beginning of track
+    elif candidate_b_time <= 16.0:
+        position_score = 0.85      # Great: Early intro (approx 8 bars in)
+    elif candidate_b_time <= 32.0:
+        position_score = 0.70      # Acceptable: Dropping after a 16-bar DJ intro
+    elif candidate_b_time <= 64.0:
+        position_score = 0.40      # Risky: 32 bars in, might be mid-phrase
+    else:
+        position_score = 0.15      # Too late for an intro transition
 
     after  = get_window_values(energy_times_b, energy_values_b,
                                candidate_b_time,      candidate_b_time + 16)
@@ -326,7 +341,7 @@ def track_b_intro_phrase_candidates(beats_b, sr, duration_b, phrase_beats=32):
 
 def score_transition_pair(
     candidate_a_time, candidate_b_time,
-    y_a, beats_a, sr,
+    y_a, beats_a, sr,downbeats_a,
     energy_times_a, energy_values_a,
     energy_times_b, energy_values_b,
     duration_a, duration_b,
@@ -336,7 +351,7 @@ def score_transition_pair(
     vocal_times_a=None, vocal_prob_a=None,
     vocal_times_b=None, vocal_prob_b=None,
 ):
-    phrase_score   = phrase_strength_score(candidate_a_time, beats_a, sr)
+    phrase_score   = phrase_strength_score(candidate_a_time, downbeats_a, sr)
     harmonic_score = 1.0 if harmonic_ok else 0.40
     b_intro        = track_b_intro_score(
         candidate_b_time, energy_times_b, energy_values_b, duration_b,
@@ -543,7 +558,7 @@ def plan_transition_logic(
         for cb in candidates_b:
             score, parts = score_transition_pair(
                 candidate_a_time=ca, candidate_b_time=cb,
-                y_a=y_a, beats_a=beats_a, sr=TARGET_SR,
+                y_a=y_a, beats_a=beats_a, sr=TARGET_SR,downbeats_a=downbeats_a,
                 energy_times_a=energy_times_a, energy_values_a=energy_values_a,
                 energy_times_b=energy_times_b, energy_values_b=energy_values_b,
                 duration_a=duration_a, duration_b=duration_b,
